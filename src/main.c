@@ -24,7 +24,6 @@ static void oled_draw_string(uint8_t x, uint8_t y, const char *str)
     }
 }
 
-#if !defined(CMIS_BUILD_APP)
 static void oled_clear_line(uint8_t y)
 {
     uint8_t index;
@@ -44,7 +43,6 @@ static void oled_show_two_lines(const char *line1, const char *line2)
     }
     bsp_oled_refresh();
 }
-#endif
 
 #if !defined(CMIS_BUILD_APP)
 static void oled_draw_uint_fixed(uint8_t x, uint8_t y, uint32_t value, uint8_t width)
@@ -380,13 +378,9 @@ static const char *update_status_text(app_update_status_t status)
 #endif
 
 #if defined(CMIS_BUILD_APP)
-static void app_show_version(void)
+static void app_show_status(const char *status)
 {
-    bsp_oled_clear();
-    oled_draw_string(0U, 0U, "APP VERSION");
-    oled_draw_string(0U, 16U, "VER:");
-    oled_draw_string(32U, 16U, APP_VERSION_TEXT);
-    bsp_oled_refresh();
+    oled_show_two_lines(APP_TEAM_ID_TEXT, status);
 }
 
 int main(void)
@@ -404,7 +398,7 @@ int main(void)
     app_protocol_init();
 
     (void)boot_param_confirm_app();
-    app_show_version();
+    app_show_status(APP_STATUS_IDLE);
     app_protocol_send_heartbeat();
 
     last_tick = systick_get_tick();
@@ -421,41 +415,6 @@ int main(void)
 
 #else
 
-static const char *boot_status_text(boot_status_t status)
-{
-    switch (status) {
-    case BOOT_OK:
-        return "BOOT OK";
-
-    case BOOT_ERR_IMAGE_HEADER:
-        return "IMG HEAD ERR";
-
-    case BOOT_ERR_IMAGE_VECTOR:
-        return "IMG VEC ERR";
-
-    case BOOT_ERR_IMAGE_CRC:
-        return "IMG CRC ERR";
-
-    case BOOT_ERR_IMAGE_SIZE:
-        return "IMG SIZE ERR";
-
-    case BOOT_ERR_FLASH_ERASE:
-        return "ERASE ERR";
-
-    case BOOT_ERR_FLASH_WRITE:
-        return "WRITE ERR";
-
-    case BOOT_ERR_FLASH_READ:
-        return "READ ERR";
-
-    case BOOT_ERR_NO_APP:
-        return "NO APP";
-
-    default:
-        return "BOOT ERR";
-    }
-}
-
 static void boot_try_pending_update(void)
 {
     boot_param_t param;
@@ -467,31 +426,32 @@ static void boot_try_pending_update(void)
         return;
     }
 
-    oled_show_two_lines("UPDATING", "SPI->APP");
+    oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
     status = boot_apply_external_image(param.update_slot_addr, &header);
     if (status == BOOT_OK) {
-        oled_show_two_lines("UPDATE OK", "RESET");
+        oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
         delay_1ms(500U);
         NVIC_SystemReset();
     }
 
-    oled_show_two_lines("UPDATE FAIL", boot_status_text(status));
+    (void)status;
+    oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
     delay_1ms(1000U);
 }
 
 static void boot_show_wait_update(void)
 {
-    oled_show_two_lines("BOOTLOADER", "WAIT UPDATE");
+    oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
 }
 
 static void boot_show_no_app(void)
 {
-    oled_show_two_lines("NO APP", "WAIT UPDATE");
+    oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
 }
 
 static void boot_show_usart_fail(void)
 {
-    oled_show_two_lines("USART FAIL", "WAIT RESET");
+    oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
 }
 
 static void boot_try_jump_app(void)
@@ -574,12 +534,13 @@ int main(void)
 
     bsp_oled_clear();
     bsp_oled_refresh();
+    boot_show_wait_update();
 
     boot_try_pending_update();
 
     stay_bootloader_after_usart = 0U;
     if (boot_usart_update_requested() != 0U) {
-        oled_show_two_lines("RS485 UPDATE", "WAIT 0502");
+        boot_show_wait_update();
         if (boot_usart_bootloader_upgrade_window() == 0U) {
             boot_try_jump_app();
         } else {

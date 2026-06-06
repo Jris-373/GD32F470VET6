@@ -50,6 +50,7 @@
 #define APP_PROTOCOL_RS485_TURNAROUND_MS  5U
 #define APP_PROTOCOL_MIN_ASCII_LENGTH     26U
 #define APP_PROTOCOL_LENGTH_FIELD_END     16U
+#define APP_PROTOCOL_RX_FRAME_TIMEOUT_MS  500U
 #define APP_PROTOCOL_YEAR_MIN             1970U
 #define APP_PROTOCOL_YEAR_MAX             2099U
 #define APP_PROTOCOL_ADC_TIMEOUT           100000U
@@ -64,6 +65,7 @@ typedef enum {
 static char s_rx_ascii[PROTOCOL_FRAME_MAX_ASCII];
 static uint16_t s_rx_length;
 static uint16_t s_rx_expected_length;
+static uint32_t s_rx_last_tick;
 static uint8_t s_rx_error_targets_local;
 static uint16_t s_device_id;
 static uint8_t s_baudrate_code;
@@ -278,6 +280,7 @@ static void app_protocol_receiver_reset(void)
 {
     s_rx_length          = 0U;
     s_rx_expected_length = 0U;
+    s_rx_last_tick       = 0U;
 }
 
 static uint8_t app_protocol_start_char_matches(uint16_t offset, char ch)
@@ -341,6 +344,19 @@ static app_protocol_rx_status_t app_protocol_receive_error(void)
     return APP_PROTOCOL_RX_ERROR;
 }
 
+static app_protocol_rx_status_t app_protocol_receive_timeout(void)
+{
+    if (s_rx_length == 0U) {
+        return APP_PROTOCOL_RX_NONE;
+    }
+
+    if ((systick_get_tick() - s_rx_last_tick) < APP_PROTOCOL_RX_FRAME_TIMEOUT_MS) {
+        return APP_PROTOCOL_RX_NONE;
+    }
+
+    return app_protocol_receive_error();
+}
+
 static uint8_t app_protocol_set_expected_length(void)
 {
     uint8_t high;
@@ -392,6 +408,7 @@ static app_protocol_rx_status_t app_protocol_receive_byte(uint8_t data, protocol
             if (app_protocol_start_char_matches(0U, (char)data) != 0U) {
                 s_rx_ascii[0] = (char)data;
                 s_rx_length   = 1U;
+                s_rx_last_tick = systick_get_tick();
             }
             return APP_PROTOCOL_RX_NONE;
         }
@@ -403,6 +420,7 @@ static app_protocol_rx_status_t app_protocol_receive_byte(uint8_t data, protocol
 
     s_rx_ascii[s_rx_length] = (char)data;
     s_rx_length++;
+    s_rx_last_tick = systick_get_tick();
 
     if ((s_rx_length == APP_PROTOCOL_LENGTH_FIELD_END) && (app_protocol_set_expected_length() == 0U)) {
         return app_protocol_receive_error();
@@ -907,15 +925,19 @@ static void app_protocol_handle_alarm_clear(const protocol_frame_t *frame)
     }
 }
 
+static void app_protocol_show_oled_status(const char *status)
+{
+    bsp_oled_clear();
+    bsp_oled_show_string(0U, 0U, APP_TEAM_ID_TEXT);
+    bsp_oled_show_string(0U, 16U, status);
+}
+
 static void app_protocol_restore_after_deepsleep(void)
 {
     bsp_led_init();
     bsp_oled_init();
     bsp_oled_display_on();
-    bsp_oled_clear();
-    bsp_oled_show_string(0U, 0U, "APP VERSION");
-    bsp_oled_show_string(0U, 16U, "VER:");
-    bsp_oled_show_string(32U, 16U, APP_VERSION_TEXT);
+    app_protocol_show_oled_status(APP_STATUS_IDLE);
     bsp_uart1_rs485_init(boot_param_baudrate_from_code(s_baudrate_code));
 }
 
@@ -929,6 +951,7 @@ static void app_protocol_handle_deepsleep(const protocol_frame_t *frame)
 
     bsp_oled_display_off();
     bsp_led_off();
+    bsp_led_sample_off();
 
     if (bsp_power_deepsleep_rtc_alarm(10U) != 0U) {
         app_protocol_restore_after_deepsleep();
@@ -1013,15 +1036,21 @@ static void app_protocol_handle_command(const protocol_frame_t *frame)
     if ((frame->command == APP_PROTOCOL_CMD_AUTO_REPORT_START) && (frame->length == 0U)) {
         s_auto_report_enabled   = 1U;
         s_auto_report_last_tick = systick_get_tick();
+        bsp_led_sample_on();
+        app_protocol_show_oled_status(APP_STATUS_AUTOSAMPLE);
         if (app_protocol_send_report_data(1U) == 0U) {
             s_auto_report_enabled = 0U;
+            bsp_led_sample_off();
+            app_protocol_show_oled_status(APP_STATUS_IDLE);
         }
         return;
     }
 
     if ((frame->command == APP_PROTOCOL_CMD_AUTO_REPORT_STOP) && (frame->length == 0U)) {
         s_auto_report_enabled = 0U;
+        bsp_led_sample_off();
         app_protocol_send_ok(frame->command);
+        app_protocol_show_oled_status(APP_STATUS_IDLE);
         return;
     }
 
@@ -1127,8 +1156,7 @@ static void app_protocol_handle_frame(const protocol_frame_t *frame)
 
     if (s_auto_report_enabled != 0U) {
         if ((frame->type == PROTOCOL_TYPE_COMMAND) &&
-            ((frame->command == APP_PROTOCOL_CMD_AUTO_REPORT_STOP) ||
-             (frame->command == APP_PROTOCOL_CMD_DEEPSLEEP)) &&
+            (frame->command == APP_PROTOCOL_CMD_AUTO_REPORT_STOP) &&
             (frame->length == 0U)) {
             app_protocol_handle_command(frame);
         }
@@ -1209,6 +1237,14 @@ void app_protocol_poll(void)
             }
             s_rx_error_targets_local = 0U;
         }
+    }
+
+    status = app_protocol_receive_timeout();
+    if (status == APP_PROTOCOL_RX_ERROR) {
+        if ((s_auto_report_enabled == 0U) && (s_rx_error_targets_local != 0U)) {
+            app_protocol_send_error(PROTOCOL_CMD_ERROR);
+        }
+        s_rx_error_targets_local = 0U;
     }
 
     if ((s_auto_report_enabled != 0U) &&

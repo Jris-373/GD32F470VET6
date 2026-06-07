@@ -1,0 +1,20 @@
+#ifndef APP_VERSION_H
+#define APP_VERSION_H
+
+#define APP_VERSION_MAJOR 2U
+#define APP_VERSION_MINOR 0U
+#define APP_VERSION_PATCH 1U
+#define APP_VERSION_BUILD 0U
+
+#define APP_VERSION_PACKED 0x02000100U
+#define APP_VERSION_TEXT   "V2.0.1.0"
+
+#ifndef APP_TEAM_ID_TEXT
+#define APP_TEAM_ID_TEXT "2026069536"
+#endif
+
+#define APP_STATUS_BOOTLOADER "Bootloader"
+#define APP_STATUS_AUTOSAMPLE "AutoSample"
+#define APP_STATUS_IDLE       "IDLE"
+
+#endif /* APP_VERSION_H */

@@ -1,0 +1,308 @@
+version: "4.1"
+name: firmware
+type: ARM
+deviceName: null
+packDir: null
+srcDirs:
+  - Driver/bsp
+virtualFolder:
+  name: <virtual_root>
+  files: []
+  folders:
+    - name: startup
+      files:
+        - path: startup/gd32f4xx_it.c
+        - path: startup/startup_gd32f450_470.s
+        - path: startup/system_gd32f4xx.c
+        - path: startup/systick.c
+      folders: []
+    - name: drivers
+      files:
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_gpio.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_misc.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_rcu.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_fmc.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_usart.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_adc.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_dac.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_i2c.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_spi.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_pmu.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_rtc.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_sdio.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_dma.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_timer.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_exti.c
+        - path: drivers/GD32F4xx_standard_peripheral/Source/gd32f4xx_syscfg.c
+      folders: []
+    - name: src
+      files:
+        - path: src/main.c
+        - path: src/NVIC.c
+      folders: []
+    - name: Protocol
+      files:
+        - path: Protocol/protocol_ascii_hex.c
+        - path: Protocol/protocol_crc16.c
+        - path: Protocol/protocol_frame.c
+      folders: []
+    - name: Function
+      files:
+        - path: Function/app/app_protocol.c
+        - path: Function/app/app_update.c
+      folders:
+        - name: boot
+          files:
+            - path: Function/boot/boot_crc32.c
+            - path: Function/boot/boot_flash.c
+            - path: Function/boot/boot_image.c
+            - path: Function/boot/boot_param.c
+            - path: Function/boot/boot_usart_update.c
+          folders: []
+    - name: common
+      files:
+        - path: common/fatfs/ff.c
+        - path: common/fatfs/diskio.c
+        - path: common/fatfs/fattime.c
+      folders: []
+dependenceList: []
+outDir: build
+miscInfo:
+  uid: d514284737d78aee1b3377aa9120a050
+targets:
+  App:
+    cppPreprocessAttrs:
+      defineList:
+        - GD32F470
+        - CMIS_BUILD_APP
+      incList:
+        - drivers/CMSIS
+        - drivers/CMSIS/GD/GD32F4xx/Include
+        - drivers/GD32F4xx_standard_peripheral/Include
+        - startup
+        - src
+        - Driver/bsp
+        - Function/app
+        - Function/boot
+        - Protocol
+        - common
+        - common/fatfs
+      libList: []
+    excludeList: []
+    settings:
+      debugger: cortex-debug
+    toolchain: AC5
+    toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks:
+            - name: Package contest App bin
+              abortAfterFailed: true
+              command: powershell -NoProfile -ExecutionPolicy Bypass -File "${workspaceFolder}\tools\package_app.ps1" -InputPath "${OutDir}\${ProjectName}.bin" -OutputPath "${OutDir}\app.bin"
+          asm-compiler: {}
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-0
+            warnings: unspecified
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes: []
+            output-format: elf
+        scatterFilePath: <YOUR_SCATTER_FILE>.sct
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x30000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x20000"
+                startAddr: "0x08011000"
+              tag: IROM
+        useCustomScatterFile: false
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: GD32F470VET6
+          vendor: GigaDevice
+        otherCmds: ""
+        proType: 1
+        speed: 1000
+      OpenOCD:
+        baseAddr: "0x08011000"
+        bin: ""
+        interface: stlink
+        target: stm32f4x
+      STLink:
+        address: "0x08011000"
+        bin: ""
+        elFile: None
+        optionBytes: .eide/debug.st.option.bytes.ini
+        otherCmds: ""
+        proType: SWD
+        resetMode: default
+        runAfterProgram: true
+        speed: 4000
+    uploader: OpenOCD
+  Bootloader:
+    cppPreprocessAttrs:
+      defineList:
+        - GD32F470
+        - CMIS_BUILD_BOOTLOADER
+      incList:
+        - drivers/CMSIS
+        - drivers/CMSIS/GD/GD32F4xx/Include
+        - drivers/GD32F4xx_standard_peripheral/Include
+        - startup
+        - src
+        - Driver/bsp
+        - Function/app
+        - Function/boot
+        - Protocol
+        - common
+        - common/fatfs
+      libList: []
+    excludeList:
+      - Function/app/app_protocol.c
+    settings:
+      debugger: cortex-debug
+    toolchain: AC5
+    toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M4
+        floatingPointHardware: single
+        options:
+          version: 4
+          afterBuildTasks: []
+          asm-compiler: {}
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            one-elf-section-per-function: true
+            optimization: level-0
+            warnings: unspecified
+          global:
+            output-debug-info: enable
+            use-microLIB: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            output-format: elf
+        scatterFilePath: <YOUR_SCATTER_FILE>.sct
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x30000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+            - id: 2
+              isChecked: false
+              mem:
+                size: "0x10000"
+                startAddr: "0x10000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x10000"
+                startAddr: "0x08000000"
+              tag: IROM
+        useCustomScatterFile: false
+      GCC:
+        archExtensions: ""
+        cpuType: Cortex-M3
+        floatingPointHardware: none
+        options:
+          version: 5
+          afterBuildTasks: []
+          asm-compiler:
+            ASM_FLAGS: ""
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            CXX_FLAGS: ""
+            C_FLAGS: ""
+            language-c: c11
+            language-cpp: c++11
+            one-elf-section-per-data: true
+            one-elf-section-per-function: true
+            optimization: level-debug
+            warnings: all-warnings
+          global:
+            $float-abi-type: hard
+            misc-control: ""
+            not-use-syscalls: true
+            output-debug-info: enable
+            use-newlib-nano: true
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            LD_FLAGS: ""
+            LIB_FLAGS: -lm
+            output-format: elf
+            remove-unused-input-sections: true
+        scatterFilePath: <YOUR_LINKER_SCRIPT>.lds
+        storageLayout:
+          RAM: []
+          ROM: []
+        useCustomScatterFile: true
+    uploadConfigMap:
+      JLink:
+        baseAddr: ""
+        bin: ""
+        cpuInfo:
+          cpuName: GD32F470VET6
+          vendor: GigaDevice
+        otherCmds: ""
+        proType: 1
+        speed: 1000
+      OpenOCD:
+        baseAddr: "0x08000000"
+        bin: ""
+        interface: stlink
+        target: stm32f4x
+      STLink:
+        address: "0x08000000"
+        bin: ""
+        elFile: None
+        optionBytes: .eide/bootloader.st.option.bytes.ini
+        otherCmds: ""
+        proType: SWD
+        resetMode: default
+        runAfterProgram: true
+        speed: 4000
+    uploader: OpenOCD

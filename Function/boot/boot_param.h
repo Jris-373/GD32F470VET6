@@ -30,6 +30,8 @@ uint8_t boot_param_get_report_interval_code(void);
 uint8_t boot_param_set_report_interval_code(uint8_t interval_code);
 uint8_t boot_param_get_alarm_report_mode(void);
 uint8_t boot_param_set_alarm_report_mode(uint8_t mode);
+uint16_t boot_param_get_dac_raw(void);
+uint8_t boot_param_set_dac_raw(uint16_t dac_raw);
 uint8_t boot_param_add_alarm(uint32_t timestamp, uint8_t channel, uint32_t threshold_bits, uint32_t actual_bits);
 uint8_t boot_param_clear_alarm_records(void);
 

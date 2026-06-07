@@ -19,6 +19,9 @@
 #define BOOT_USART_RAW_MAX_SIZE       (BOOT_APP_MAX_SIZE + BOOT_USART_RAW_MAGIC_BYTES)
 #define BOOT_USART_COPY_BUFFER_SIZE   512U
 #define BOOT_USART_RS485_TURNAROUND_MS 5U
+#define BOOT_USART_INIT_PROMPT_FIRST_DELAY_MS 100U
+#define BOOT_USART_INIT_PROMPT_REPEAT_MS 300U
+#define BOOT_USART_INIT_PROMPT_WINDOW_MS 5000U
 
 typedef enum {
     BOOT_USART_FRAME_NONE = 0,
@@ -303,6 +306,12 @@ static void boot_usart_send_countdown_prompt(uint8_t seconds)
     bsp_uart1_rs485_send_string(text);
 }
 
+static void boot_usart_send_init_prompt(void)
+{
+    bsp_uart1_rs485_send_string("using command to interrupt start Application\r\n");
+    boot_usart_send_countdown_prompt(10U);
+}
+
 static uint8_t boot_usart_read_firmware_byte(uint8_t *data, uint8_t *data_started)
 {
     uint8_t byte;
@@ -325,7 +334,7 @@ static uint8_t boot_usart_read_firmware_byte(uint8_t *data, uint8_t *data_starte
     return 0U;
 }
 
-static uint8_t boot_usart_receive_firmware_to_staging(void)
+static uint8_t boot_usart_receive_firmware_to_staging(uint8_t *ready_ack_sent)
 {
     uint8_t data;
     uint8_t data_started;
@@ -335,7 +344,10 @@ static uint8_t boot_usart_receive_firmware_to_staging(void)
     uint32_t now_tick;
     uint32_t app_size;
     uint32_t crc;
-    uint8_t ready_ack_sent;
+
+    if (ready_ack_sent == 0) {
+        return 0U;
+    }
 
     s_usart_fw_ready = 0U;
     s_usart_fw_size = 0U;
@@ -345,7 +357,7 @@ static uint8_t boot_usart_receive_firmware_to_staging(void)
     s_usart_fw_entry = 0U;
     overflow = 0U;
     data_started = 0U;
-    ready_ack_sent = 0U;
+    *ready_ack_sent = 0U;
 
     boot_usart_frame_receiver_reset();
 
@@ -366,9 +378,9 @@ static uint8_t boot_usart_receive_firmware_to_staging(void)
 
         now_tick = systick_get_tick();
         if ((s_usart_fw_size == 0U) &&
-            (ready_ack_sent == 0U) &&
+            (*ready_ack_sent == 0U) &&
             ((now_tick - start_tick) >= BOOT_USART_FW_READY_ACK_TIMEOUT_MS)) {
-            ready_ack_sent = 1U;
+            *ready_ack_sent = 1U;
             boot_usart_send_ok(BOOT_USART_CMD_RECEIVE_BIN);
             boot_usart_frame_receiver_reset();
         }
@@ -556,12 +568,17 @@ static uint8_t boot_usart_wait_apply_command(void)
 
 static uint8_t boot_usart_handle_receive_command(void)
 {
-    if (boot_usart_receive_firmware_to_staging() == 0U) {
+    uint8_t ready_ack_sent;
+
+    ready_ack_sent = 0U;
+    if (boot_usart_receive_firmware_to_staging(&ready_ack_sent) == 0U) {
         boot_usart_send_error(BOOT_USART_CMD_RECEIVE_BIN);
-        return 1U;
+        return 0U;
     }
 
-    boot_usart_send_ok(BOOT_USART_CMD_RECEIVE_BIN);
+    if (ready_ack_sent == 0U) {
+        boot_usart_send_ok(BOOT_USART_CMD_RECEIVE_BIN);
+    }
     return boot_usart_wait_apply_command();
 }
 
@@ -570,24 +587,48 @@ uint8_t boot_usart_bootloader_upgrade_window(void)
     protocol_frame_t frame;
     boot_usart_frame_status_t status;
     uint32_t start_tick;
+    uint32_t window_timeout_ms;
     uint32_t elapsed;
+    uint32_t last_init_prompt_tick;
     uint8_t prompt_7s_sent;
     uint8_t prompt_4s_sent;
     uint8_t prompt_1s_sent;
+    uint8_t first_init_prompt_sent;
+    uint8_t init_prompt_repeat_enabled;
 
     (void)boot_param_clear_update_request();
     boot_usart_frame_receiver_reset();
 
-    bsp_uart1_rs485_send_string("using command to interrupt start Application\r\n");
-    boot_usart_send_countdown_prompt(10U);
-
     prompt_7s_sent = 0U;
     prompt_4s_sent = 0U;
     prompt_1s_sent = 0U;
+    first_init_prompt_sent = 0U;
+    init_prompt_repeat_enabled = 1U;
     start_tick = systick_get_tick();
+    last_init_prompt_tick = start_tick;
+    window_timeout_ms = BOOT_USART_BOOT_WINDOW_MS;
 
-    while ((systick_get_tick() - start_tick) < BOOT_USART_BOOT_WINDOW_MS) {
+    while ((systick_get_tick() - start_tick) < window_timeout_ms) {
         elapsed = systick_get_tick() - start_tick;
+
+        if (first_init_prompt_sent == 0U) {
+            if (elapsed < BOOT_USART_INIT_PROMPT_FIRST_DELAY_MS) {
+                continue;
+            }
+
+            first_init_prompt_sent = 1U;
+            last_init_prompt_tick = systick_get_tick();
+            boot_usart_send_init_prompt();
+            continue;
+        }
+
+        if ((init_prompt_repeat_enabled != 0U) &&
+            (elapsed < BOOT_USART_INIT_PROMPT_WINDOW_MS) &&
+            ((systick_get_tick() - last_init_prompt_tick) >= BOOT_USART_INIT_PROMPT_REPEAT_MS)) {
+            last_init_prompt_tick = systick_get_tick();
+            boot_usart_send_init_prompt();
+        }
+
         if ((elapsed >= 3000U) && (prompt_7s_sent == 0U)) {
             prompt_7s_sent = 1U;
             boot_usart_send_countdown_prompt(7U);
@@ -620,7 +661,17 @@ uint8_t boot_usart_bootloader_upgrade_window(void)
         if ((frame.type == PROTOCOL_TYPE_COMMAND) &&
             (frame.command == BOOT_USART_CMD_RECEIVE_BIN) &&
             (frame.length == 0U)) {
-            return boot_usart_handle_receive_command();
+            init_prompt_repeat_enabled = 0U;
+            if (boot_usart_handle_receive_command() != 0U) {
+                return 1U;
+            }
+
+            start_tick = systick_get_tick();
+            window_timeout_ms = BOOT_USART_WAIT_0503_MS;
+            prompt_7s_sent = 1U;
+            prompt_4s_sent = 1U;
+            prompt_1s_sent = 1U;
+            continue;
         }
 
         if ((frame.type == PROTOCOL_TYPE_COMMAND) &&

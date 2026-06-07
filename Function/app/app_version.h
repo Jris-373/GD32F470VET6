@@ -10,7 +10,7 @@
 #define APP_VERSION_TEXT   "V2.0.1.0"
 
 #ifndef APP_TEAM_ID_TEXT
-#define APP_TEAM_ID_TEXT "TEAM0000"
+#define APP_TEAM_ID_TEXT "2026069536"
 #endif
 
 #define APP_STATUS_BOOTLOADER "Bootloader"

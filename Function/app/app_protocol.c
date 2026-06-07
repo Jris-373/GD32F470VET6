@@ -47,12 +47,15 @@
 #define APP_PROTOCOL_CMD_DEVICE_HEARTBEAT 0x8888U
 
 #define APP_PROTOCOL_RESET_DELAY_MS       50U
+#define APP_PROTOCOL_BOOT_PROMPT_DELAY_MS 2000U
+#define APP_PROTOCOL_BOOT_RESET_DELAY_MS  100U
 #define APP_PROTOCOL_RS485_TURNAROUND_MS  5U
 #define APP_PROTOCOL_MIN_ASCII_LENGTH     26U
 #define APP_PROTOCOL_LENGTH_FIELD_END     16U
 #define APP_PROTOCOL_RX_FRAME_TIMEOUT_MS  500U
 #define APP_PROTOCOL_YEAR_MIN             1970U
 #define APP_PROTOCOL_YEAR_MAX             2099U
+#define APP_PROTOCOL_LOCAL_UTC_OFFSET_SECONDS (8U * 3600U)
 #define APP_PROTOCOL_ADC_TIMEOUT           100000U
 #define APP_PROTOCOL_ALARM_TEXT_MAX       768U
 
@@ -488,6 +491,15 @@ static void app_protocol_send_text(const char *text, uint16_t length)
     bsp_uart1_rs485_send_buffer((const uint8_t *)text, length);
 }
 
+static void app_protocol_send_boot_init_prompt(void)
+{
+    static const char line1[] = "using command to interrupt start Application\r\n";
+    static const char line2[] = "wait for start Application(10s)......\r\n";
+
+    app_protocol_send_text(line1, (uint16_t)(sizeof(line1) - 1U));
+    app_protocol_send_text(line2, (uint16_t)(sizeof(line2) - 1U));
+}
+
 static void app_protocol_append_char(char *buffer, uint16_t *length, uint16_t size, char ch)
 {
     if ((buffer == 0) || (length == 0) || (*length >= size)) {
@@ -562,6 +574,10 @@ static void app_protocol_append_float_2(char *buffer, uint16_t *length, uint16_t
 static void app_protocol_append_datetime(char *buffer, uint16_t *length, uint16_t size, uint32_t timestamp)
 {
     bsp_rtc_datetime_t datetime;
+
+    if (timestamp <= (0xFFFFFFFFU - APP_PROTOCOL_LOCAL_UTC_OFFSET_SECONDS)) {
+        timestamp += APP_PROTOCOL_LOCAL_UTC_OFFSET_SECONDS;
+    }
 
     if (app_protocol_unix_to_datetime(timestamp, &datetime) == 0U) {
         app_protocol_append_text(buffer, length, size, "1970-01-01 00:00:00");
@@ -1024,7 +1040,7 @@ static void app_protocol_handle_command(const protocol_frame_t *frame)
         uint16_t raw;
 
         raw = app_protocol_read_be16(frame->payload);
-        if (raw <= BSP_DAC_MAX_RAW) {
+        if ((raw <= BSP_DAC_MAX_RAW) && (boot_param_set_dac_raw(raw) != 0U)) {
             bsp_dac_write_raw(raw);
             app_protocol_send_ok(frame->command);
         } else {
@@ -1137,7 +1153,9 @@ static void app_protocol_handle_command(const protocol_frame_t *frame)
     if ((frame->command == APP_PROTOCOL_CMD_ENTER_BOOT) && (frame->length == 0U)) {
         if (boot_param_mark_usart_request() != 0U) {
             app_protocol_send_ok(frame->command);
-            delay_1ms(APP_PROTOCOL_RESET_DELAY_MS);
+            delay_1ms(APP_PROTOCOL_BOOT_PROMPT_DELAY_MS);
+            app_protocol_send_boot_init_prompt();
+            delay_1ms(APP_PROTOCOL_BOOT_RESET_DELAY_MS);
             NVIC_SystemReset();
         } else {
             app_protocol_send_error(frame->command);
@@ -1207,6 +1225,7 @@ void app_protocol_init(void)
     s_auto_report_enabled = 0U;
     s_auto_report_last_tick = systick_get_tick();
     s_alarm_report_mode = boot_param_get_alarm_report_mode();
+    bsp_dac_write_raw(boot_param_get_dac_raw());
     bsp_rtc_init();
     if (bsp_rtc_is_configured() == 0U) {
         default_datetime.year    = 2026U;

@@ -44,8 +44,7 @@ void boot_param_default(boot_param_t *param)
         param->alarm_threshold_bits[index] = 0U;
         param->alarm_actual_bits[index] = 0U;
     }
-    param->alarm_reserved1[0] = 0xFFU;
-    param->alarm_reserved1[1] = 0xFFU;
+    param->dac_raw          = BOOT_DAC_RAW_DEFAULT;
     param->tail_magic       = BOOT_PARAM_TAIL_MAGIC;
 }
 
@@ -149,6 +148,10 @@ uint8_t boot_param_load(boot_param_t *param)
 
         boot_param_default(param);
         return 0U;
+    }
+
+    if (param->dac_raw > BOOT_DAC_RAW_MAX) {
+        param->dac_raw = BOOT_DAC_RAW_DEFAULT;
     }
 
     return 1U;
@@ -453,6 +456,31 @@ uint8_t boot_param_set_alarm_report_mode(uint8_t mode)
 
     (void)boot_param_load(&param);
     param.alarm_report_mode = mode;
+    return boot_param_store(&param);
+}
+
+uint16_t boot_param_get_dac_raw(void)
+{
+    boot_param_t param;
+
+    (void)boot_param_load(&param);
+    if (param.dac_raw > BOOT_DAC_RAW_MAX) {
+        return BOOT_DAC_RAW_DEFAULT;
+    }
+
+    return param.dac_raw;
+}
+
+uint8_t boot_param_set_dac_raw(uint16_t dac_raw)
+{
+    boot_param_t param;
+
+    if (dac_raw > BOOT_DAC_RAW_MAX) {
+        return 0U;
+    }
+
+    (void)boot_param_load(&param);
+    param.dac_raw = dac_raw;
     return boot_param_store(&param);
 }
 

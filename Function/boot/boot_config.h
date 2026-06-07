@@ -54,6 +54,7 @@
 #define BOOT_USART_BAUD_CODE_9600     0x12U
 #define BOOT_USART_BAUD_CODE_19200    0x13U
 #define BOOT_USART_BAUD_CODE_115200   0x14U
+#define BOOT_APP_START_DELAY_MS       5000U
 #define BOOT_USART_BOOT_WINDOW_MS     10000U
 #define BOOT_USART_FW_FIRST_TIMEOUT_MS 30000U
 #define BOOT_USART_FW_READY_ACK_TIMEOUT_MS 700U
@@ -69,6 +70,8 @@
 #define BOOT_ALARM_MODE_PASSIVE       0x02U
 #define BOOT_ALARM_MODE_DEFAULT       BOOT_ALARM_MODE_PASSIVE
 #define BOOT_ALARM_RECORD_MAX         10U
+#define BOOT_DAC_RAW_DEFAULT           0U
+#define BOOT_DAC_RAW_MAX               4095U
 
 typedef struct {
     uint32_t magic;
@@ -96,7 +99,7 @@ typedef struct {
     uint8_t alarm_reserved0;
     uint32_t alarm_timestamp[BOOT_ALARM_RECORD_MAX];
     uint8_t alarm_channel[BOOT_ALARM_RECORD_MAX];
-    uint8_t alarm_reserved1[2];
+    uint16_t dac_raw;
     uint32_t alarm_threshold_bits[BOOT_ALARM_RECORD_MAX];
     uint32_t alarm_actual_bits[BOOT_ALARM_RECORD_MAX];
     uint32_t tail_magic;

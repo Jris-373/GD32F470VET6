@@ -554,7 +554,7 @@ int main(void)
 
     while ((stay_bootloader_after_usart == 0U) &&
            (boot_app_is_present() != 0U) &&
-           ((systick_get_tick() - menu_start_tick) < 1000U)) {
+           ((systick_get_tick() - menu_start_tick) < BOOT_APP_START_DELAY_MS)) {
         boot_poll_keys();
 
         if ((systick_get_tick() - last_tick) >= 500U) {

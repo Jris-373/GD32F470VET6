@@ -32,9 +32,10 @@
 #define BOOT_TF_FIRMWARE_PATH         "0:/firmware.bin"
 
 #define BOOT_PARAM_MAGIC              0x5AA5C33CU
-#define BOOT_PARAM_VERSION            4U
+#define BOOT_PARAM_VERSION            5U
 #define BOOT_PARAM_LEGACY_VERSION     2U
 #define BOOT_PARAM_LEGACY_V3_VERSION  3U
+#define BOOT_PARAM_LEGACY_V4_VERSION  4U
 #define BOOT_PARAM_TAIL_MAGIC         0xA5A5C3C3U
 #define BOOT_FW_PACKAGE_MAGIC         0x5AA5C33CU
 #define BOOT_IMAGE_MAGIC              0x53494D43U
@@ -62,6 +63,9 @@
 #define BOOT_USART_WAIT_0503_MS       120000U
 #define BOOT_PARAM_FLOAT_1_BITS       0x3F800000U
 #define BOOT_PARAM_FLOAT_4095_BITS    0x457FF000U
+#define BOOT_PARAM_FLOAT_850_BITS     0x44548000U
+#define BOOT_PARAM_PT100_GAIN_BITS    0x447B9284U
+#define BOOT_PARAM_PT100_OFFSET_BITS  0x00000000U
 #define BOOT_REPORT_INTERVAL_1S       0x01U
 #define BOOT_REPORT_INTERVAL_3S       0x02U
 #define BOOT_REPORT_INTERVAL_5S       0x03U
@@ -102,6 +106,9 @@ typedef struct {
     uint16_t dac_raw;
     uint32_t alarm_threshold_bits[BOOT_ALARM_RECORD_MAX];
     uint32_t alarm_actual_bits[BOOT_ALARM_RECORD_MAX];
+    uint32_t ch2_threshold_bits;
+    uint32_t pt100_v_to_r_gain_bits;
+    uint32_t pt100_v_to_r_offset_bits;
     uint32_t tail_magic;
 } boot_param_t;
 

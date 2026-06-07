@@ -10,6 +10,7 @@
 #include "bsp_led.h"
 #include "bsp_oled.h"
 #include "bsp_power.h"
+#include "bsp_pt100.h"
 #include "bsp_rtc.h"
 #include "bsp_uart.h"
 #include "gd32f4xx.h"
@@ -27,6 +28,7 @@
 #define APP_PROTOCOL_CMD_SET_BAUDRATE     0x01A2U
 #define APP_PROTOCOL_CMD_CH0_DATA         0x0201U
 #define APP_PROTOCOL_CMD_CH1_DATA         0x0202U
+#define APP_PROTOCOL_CMD_CH2_PT100_DATA   0x0221U
 #define APP_PROTOCOL_CMD_SET_CH0_RATIO    0x0241U
 #define APP_PROTOCOL_CMD_SET_CH1_RATIO    0x0242U
 #define APP_PROTOCOL_CMD_SET_REPORT_INTERVAL 0x0261U
@@ -37,8 +39,10 @@
 #define APP_PROTOCOL_CMD_THRESHOLDS       0x0400U
 #define APP_PROTOCOL_CMD_CH0_THRESHOLD    0x0401U
 #define APP_PROTOCOL_CMD_CH1_THRESHOLD    0x0402U
+#define APP_PROTOCOL_CMD_CH2_THRESHOLD    0x0403U
 #define APP_PROTOCOL_CMD_SET_CH0_THRESHOLD 0x0411U
 #define APP_PROTOCOL_CMD_SET_CH1_THRESHOLD 0x0412U
+#define APP_PROTOCOL_CMD_SET_CH2_THRESHOLD 0x0413U
 #define APP_PROTOCOL_CMD_ENTER_BOOT       0x0501U
 #define APP_PROTOCOL_CMD_ALARM_MODE       0x0601U
 #define APP_PROTOCOL_CMD_ALARM_QUERY      0x0602U
@@ -58,6 +62,9 @@
 #define APP_PROTOCOL_LOCAL_UTC_OFFSET_SECONDS (8U * 3600U)
 #define APP_PROTOCOL_ADC_TIMEOUT           100000U
 #define APP_PROTOCOL_ALARM_TEXT_MAX       768U
+#define APP_PROTOCOL_PT100_GAIN_MIN       100.0f
+#define APP_PROTOCOL_PT100_GAIN_MAX       2000.0f
+#define APP_PROTOCOL_PT100_LEGACY_GAIN_BITS 0x447A0000U
 
 typedef enum {
     APP_PROTOCOL_RX_NONE = 0,
@@ -76,6 +83,7 @@ static uint32_t s_ch0_ratio_bits;
 static uint32_t s_ch1_ratio_bits;
 static uint32_t s_ch0_threshold_bits;
 static uint32_t s_ch1_threshold_bits;
+static uint32_t s_ch2_threshold_bits;
 static uint8_t s_report_interval_code;
 static uint32_t s_report_interval_ms;
 static uint8_t s_auto_report_enabled;
@@ -607,7 +615,11 @@ static void app_protocol_append_alarm_line(char *buffer,
 {
     app_protocol_append_datetime(buffer, length, size, timestamp);
     app_protocol_append_text(buffer, length, size, " | CH");
-    app_protocol_append_char(buffer, length, size, (channel == 0U) ? '0' : '1');
+    if (channel <= 2U) {
+        app_protocol_append_char(buffer, length, size, (char)('0' + channel));
+    } else {
+        app_protocol_append_char(buffer, length, size, '?');
+    }
     app_protocol_append_text(buffer, length, size, " | ");
     app_protocol_append_float_2(buffer, length, size, app_protocol_float_from_bits(threshold_bits));
     app_protocol_append_text(buffer, length, size, " | ");
@@ -799,6 +811,25 @@ static void app_protocol_handle_adc_get(const protocol_frame_t *frame, bsp_adc_i
     app_protocol_send_frame(PROTOCOL_TYPE_RESPONSE, frame->command, payload, sizeof(payload));
 }
 
+static void app_protocol_handle_pt100_get(const protocol_frame_t *frame)
+{
+    uint8_t payload[4];
+    uint32_t timestamp;
+    float temperature;
+
+    if (bsp_pt100_read_temperature(&temperature) == 0U) {
+        app_protocol_send_error(frame->command);
+        return;
+    }
+
+    if (app_protocol_current_timestamp(&timestamp) != 0U) {
+        app_protocol_check_alarm(timestamp, 2U, s_ch2_threshold_bits, temperature);
+    }
+
+    app_protocol_write_float_be(payload, temperature);
+    app_protocol_send_frame(PROTOCOL_TYPE_RESPONSE, frame->command, payload, sizeof(payload));
+}
+
 static void app_protocol_handle_ratio_set(const protocol_frame_t *frame, uint8_t channel)
 {
     uint32_t ratio_bits;
@@ -842,8 +873,10 @@ static void app_protocol_handle_threshold_get(const protocol_frame_t *frame, uin
 
     if (channel == 1U) {
         app_protocol_write_be32(payload, s_ch0_threshold_bits);
-    } else {
+    } else if (channel == 2U) {
         app_protocol_write_be32(payload, s_ch1_threshold_bits);
+    } else {
+        app_protocol_write_be32(payload, s_ch2_threshold_bits);
     }
 
     app_protocol_send_frame(PROTOCOL_TYPE_RESPONSE, frame->command, payload, 4U);
@@ -865,10 +898,15 @@ static void app_protocol_handle_threshold_set(const protocol_frame_t *frame, uin
         if (ok != 0U) {
             s_ch0_threshold_bits = threshold_bits;
         }
-    } else {
+    } else if (channel == 2U) {
         ok = boot_param_set_ch1_threshold_bits(threshold_bits);
         if (ok != 0U) {
             s_ch1_threshold_bits = threshold_bits;
+        }
+    } else {
+        ok = boot_param_set_ch2_threshold_bits(threshold_bits);
+        if (ok != 0U) {
+            s_ch2_threshold_bits = threshold_bits;
         }
     }
 
@@ -1031,6 +1069,11 @@ static void app_protocol_handle_command(const protocol_frame_t *frame)
         return;
     }
 
+    if ((frame->command == APP_PROTOCOL_CMD_CH2_PT100_DATA) && (frame->length == 0U)) {
+        app_protocol_handle_pt100_get(frame);
+        return;
+    }
+
     if ((frame->command == APP_PROTOCOL_CMD_SET_REPORT_INTERVAL) && (frame->length == 1U)) {
         app_protocol_handle_report_interval_set(frame);
         return;
@@ -1100,6 +1143,11 @@ static void app_protocol_handle_command(const protocol_frame_t *frame)
         return;
     }
 
+    if ((frame->command == APP_PROTOCOL_CMD_CH2_THRESHOLD) && (frame->length == 0U)) {
+        app_protocol_handle_threshold_get(frame, 3U);
+        return;
+    }
+
     if ((frame->command == APP_PROTOCOL_CMD_SET_CH0_THRESHOLD) && (frame->length == 4U)) {
         app_protocol_handle_threshold_set(frame, 1U);
         return;
@@ -1107,6 +1155,11 @@ static void app_protocol_handle_command(const protocol_frame_t *frame)
 
     if ((frame->command == APP_PROTOCOL_CMD_SET_CH1_THRESHOLD) && (frame->length == 4U)) {
         app_protocol_handle_threshold_set(frame, 2U);
+        return;
+    }
+
+    if ((frame->command == APP_PROTOCOL_CMD_SET_CH2_THRESHOLD) && (frame->length == 4U)) {
+        app_protocol_handle_threshold_set(frame, 3U);
         return;
     }
 
@@ -1211,6 +1264,8 @@ static void app_protocol_handle_frame(const protocol_frame_t *frame)
 void app_protocol_init(void)
 {
     bsp_rtc_datetime_t default_datetime;
+    bsp_pt100_calibration_t pt100_calibration;
+    uint32_t pt100_gain_bits;
 
     app_protocol_receiver_reset();
     s_rx_error_targets_local = 0U;
@@ -1220,6 +1275,18 @@ void app_protocol_init(void)
     s_ch1_ratio_bits = boot_param_get_ch1_ratio_bits();
     s_ch0_threshold_bits = boot_param_get_ch0_threshold_bits();
     s_ch1_threshold_bits = boot_param_get_ch1_threshold_bits();
+    s_ch2_threshold_bits = boot_param_get_ch2_threshold_bits();
+    pt100_gain_bits = boot_param_get_pt100_v_to_r_gain_bits();
+    pt100_calibration.voltage_to_resistance_gain = app_protocol_float_from_bits(pt100_gain_bits);
+    pt100_calibration.voltage_to_resistance_offset = app_protocol_float_from_bits(boot_param_get_pt100_v_to_r_offset_bits());
+    if ((pt100_calibration.voltage_to_resistance_gain < APP_PROTOCOL_PT100_GAIN_MIN) ||
+        (pt100_calibration.voltage_to_resistance_gain > APP_PROTOCOL_PT100_GAIN_MAX) ||
+        (pt100_gain_bits == APP_PROTOCOL_PT100_LEGACY_GAIN_BITS)) {
+        pt100_calibration.voltage_to_resistance_gain = app_protocol_float_from_bits(BOOT_PARAM_PT100_GAIN_BITS);
+        pt100_calibration.voltage_to_resistance_offset = app_protocol_float_from_bits(BOOT_PARAM_PT100_OFFSET_BITS);
+        (void)boot_param_set_pt100_calibration_bits(BOOT_PARAM_PT100_GAIN_BITS, BOOT_PARAM_PT100_OFFSET_BITS);
+    }
+    (void)bsp_pt100_set_calibration(&pt100_calibration);
     s_report_interval_code = boot_param_get_report_interval_code();
     s_report_interval_ms = app_protocol_report_interval_ms_from_code(s_report_interval_code);
     s_auto_report_enabled = 0U;

@@ -3,6 +3,7 @@
 
 #define BOOT_PARAM_LEGACY_TAIL_OFFSET 52U
 #define BOOT_PARAM_LEGACY_V3_TAIL_OFFSET 68U
+#define BOOT_PARAM_LEGACY_V4_TAIL_OFFSET 204U
 
 static uint32_t boot_param_read_u32(uint32_t address)
 {
@@ -34,6 +35,9 @@ void boot_param_default(boot_param_t *param)
     param->ch1_ratio_bits   = BOOT_PARAM_FLOAT_1_BITS;
     param->ch0_threshold_bits = BOOT_PARAM_FLOAT_4095_BITS;
     param->ch1_threshold_bits = BOOT_PARAM_FLOAT_4095_BITS;
+    param->ch2_threshold_bits = BOOT_PARAM_FLOAT_850_BITS;
+    param->pt100_v_to_r_gain_bits = BOOT_PARAM_PT100_GAIN_BITS;
+    param->pt100_v_to_r_offset_bits = BOOT_PARAM_PT100_OFFSET_BITS;
     param->report_interval_code = BOOT_REPORT_INTERVAL_DEFAULT;
     param->alarm_report_mode = BOOT_ALARM_MODE_DEFAULT;
     param->alarm_count = 0U;
@@ -127,6 +131,58 @@ static uint8_t boot_param_load_legacy_v3(boot_param_t *param)
     return 1U;
 }
 
+static uint8_t boot_param_load_legacy_v4(boot_param_t *param)
+{
+    const boot_param_t *stored;
+
+    if (param == 0) {
+        return 0U;
+    }
+
+    if ((boot_param_read_u32(BOOT_PARAM_ADDR) != BOOT_PARAM_MAGIC) ||
+        (boot_param_read_u32(BOOT_PARAM_ADDR + 4U) != BOOT_PARAM_LEGACY_V4_VERSION) ||
+        (boot_param_read_u32(BOOT_PARAM_ADDR + BOOT_PARAM_LEGACY_V4_TAIL_OFFSET) != BOOT_PARAM_TAIL_MAGIC)) {
+        return 0U;
+    }
+
+    stored = (const boot_param_t *)BOOT_PARAM_ADDR;
+    boot_param_default(param);
+    param->update_flag      = stored->update_flag;
+    param->update_slot_addr = stored->update_slot_addr;
+    param->app_start_addr   = stored->app_start_addr;
+    param->app_size         = stored->app_size;
+    param->app_crc32        = stored->app_crc32;
+    param->app_version      = stored->app_version;
+    param->confirm_magic    = stored->confirm_magic;
+    param->boot_count       = stored->boot_count;
+    param->boot_fail_count  = stored->boot_fail_count;
+    param->last_error       = stored->last_error;
+    param->device_id        = stored->device_id;
+    param->baudrate_code    = stored->baudrate_code;
+    param->reserved0        = stored->reserved0;
+    param->ch0_ratio_bits   = stored->ch0_ratio_bits;
+    param->ch1_ratio_bits   = stored->ch1_ratio_bits;
+    param->ch0_threshold_bits = stored->ch0_threshold_bits;
+    param->ch1_threshold_bits = stored->ch1_threshold_bits;
+    param->report_interval_code = stored->report_interval_code;
+    param->alarm_report_mode = stored->alarm_report_mode;
+    param->alarm_count = stored->alarm_count;
+    for (uint8_t index = 0U; index < BOOT_ALARM_RECORD_MAX; index++) {
+        param->alarm_timestamp[index] = stored->alarm_timestamp[index];
+        param->alarm_channel[index] = stored->alarm_channel[index];
+        param->alarm_threshold_bits[index] = stored->alarm_threshold_bits[index];
+        param->alarm_actual_bits[index] = stored->alarm_actual_bits[index];
+    }
+    param->dac_raw = stored->dac_raw;
+    if (param->alarm_count > BOOT_ALARM_RECORD_MAX) {
+        param->alarm_count = BOOT_ALARM_RECORD_MAX;
+    }
+    if (param->dac_raw > BOOT_DAC_RAW_MAX) {
+        param->dac_raw = BOOT_DAC_RAW_DEFAULT;
+    }
+    return 1U;
+}
+
 uint8_t boot_param_load(boot_param_t *param)
 {
     const boot_param_t *stored;
@@ -138,6 +194,10 @@ uint8_t boot_param_load(boot_param_t *param)
     stored = (const boot_param_t *)BOOT_PARAM_ADDR;
     *param = *stored;
     if (boot_param_is_valid(param) == 0U) {
+        if (boot_param_load_legacy_v4(param) != 0U) {
+            return 1U;
+        }
+
         if (boot_param_load_legacy_v3(param) != 0U) {
             return 1U;
         }
@@ -369,6 +429,30 @@ uint32_t boot_param_get_ch1_threshold_bits(void)
     return param.ch1_threshold_bits;
 }
 
+uint32_t boot_param_get_ch2_threshold_bits(void)
+{
+    boot_param_t param;
+
+    (void)boot_param_load(&param);
+    return param.ch2_threshold_bits;
+}
+
+uint32_t boot_param_get_pt100_v_to_r_gain_bits(void)
+{
+    boot_param_t param;
+
+    (void)boot_param_load(&param);
+    return param.pt100_v_to_r_gain_bits;
+}
+
+uint32_t boot_param_get_pt100_v_to_r_offset_bits(void)
+{
+    boot_param_t param;
+
+    (void)boot_param_load(&param);
+    return param.pt100_v_to_r_offset_bits;
+}
+
 uint8_t boot_param_set_ch0_ratio_bits(uint32_t ratio_bits)
 {
     boot_param_t param;
@@ -402,6 +486,25 @@ uint8_t boot_param_set_ch1_threshold_bits(uint32_t threshold_bits)
 
     (void)boot_param_load(&param);
     param.ch1_threshold_bits = threshold_bits;
+    return boot_param_store(&param);
+}
+
+uint8_t boot_param_set_ch2_threshold_bits(uint32_t threshold_bits)
+{
+    boot_param_t param;
+
+    (void)boot_param_load(&param);
+    param.ch2_threshold_bits = threshold_bits;
+    return boot_param_store(&param);
+}
+
+uint8_t boot_param_set_pt100_calibration_bits(uint32_t gain_bits, uint32_t offset_bits)
+{
+    boot_param_t param;
+
+    (void)boot_param_load(&param);
+    param.pt100_v_to_r_gain_bits = gain_bits;
+    param.pt100_v_to_r_offset_bits = offset_bits;
     return boot_param_store(&param);
 }
 

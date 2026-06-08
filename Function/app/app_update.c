@@ -11,11 +11,19 @@
 static uint8_t s_update_buffer[APP_UPDATE_BUFFER_SIZE];
 static app_update_progress_callback_t s_progress_callback;
 
+/* 注册 App 侧升级流程进度回调。
+ * 参数：callback 为进度回调函数，传入 0 表示取消回调。
+ * 返回：无。
+ */
 void app_update_set_progress_callback(app_update_progress_callback_t callback)
 {
     s_progress_callback = callback;
 }
 
+/* 上报当前固件暂存流程进度。
+ * 参数：progress 为阶段；done 为已完成数量；total 为总数量。
+ * 返回：无。
+ */
 static void app_update_emit_progress(app_update_progress_t progress, uint32_t done, uint32_t total)
 {
     if (s_progress_callback != 0) {
@@ -23,6 +31,10 @@ static void app_update_emit_progress(app_update_progress_t progress, uint32_t do
     }
 }
 
+/* 按扇区擦除外部 SPI FLASH 的固件暂存区域。
+ * 参数：address 为起始地址；length 为需要覆盖的字节数。
+ * 返回：1 表示擦除完成，0 表示任一扇区擦除失败。
+ */
 static uint8_t app_update_ext_flash_erase(uint32_t address, uint32_t length)
 {
     uint32_t erase_addr;
@@ -41,6 +53,7 @@ static uint8_t app_update_ext_flash_erase(uint32_t address, uint32_t length)
     app_update_emit_progress(APP_UPDATE_PROGRESS_ERASE, done, total);
 
     while (erase_addr < end) {
+        /* 外部 FLASH 只能按扇区擦除，所以先向下对齐到扇区边界。 */
         if (bsp_spi_flash_sector_erase(erase_addr) == 0U) {
             return 0U;
         }
@@ -52,6 +65,10 @@ static uint8_t app_update_ext_flash_erase(uint32_t address, uint32_t length)
     return 1U;
 }
 
+/* 生成外部 FLASH 镜像头。
+ * 参数：header 为输出头；image_size/image_crc32 为 App 镜像信息；version 为版本号；stack_addr/entry_addr 为向量表前两项。
+ * 返回：无。
+ */
 static void app_update_build_header(boot_image_header_t *header, uint32_t image_size, uint32_t image_crc32, uint32_t version, uint32_t stack_addr, uint32_t entry_addr)
 {
     uint32_t index;
@@ -76,6 +93,10 @@ static void app_update_build_header(boot_image_header_t *header, uint32_t image_
     header->header_crc32 = boot_image_header_crc32(header);
 }
 
+/* 从 TF 卡读取固件文件并暂存到外部 SPI FLASH。
+ * 参数：path 为固件路径，传入 0 使用默认 firmware.bin；version 为待写入镜像版本；out_header 可选输出镜像头。
+ * 返回：APP_UPDATE_OK 表示暂存成功，其余状态指示挂载、读取、校验或参数写入失败。
+ */
 app_update_status_t app_update_stage_tf_firmware(const char *path, uint32_t version, boot_image_header_t *out_header)
 {
     FIL file;
@@ -92,6 +113,7 @@ app_update_status_t app_update_stage_tf_firmware(const char *path, uint32_t vers
         path = BOOT_TF_FIRMWARE_PATH;
     }
 
+    /* 先完成 TF 挂载和文件打开，后续才擦除外部 FLASH，避免文件不存在时破坏暂存区。 */
     app_update_emit_progress(APP_UPDATE_PROGRESS_MOUNT, 0U, 0U);
     if (bsp_tf_mount() != BSP_TF_OK) {
         return APP_UPDATE_TF_MOUNT_ERR;
@@ -138,6 +160,7 @@ app_update_status_t app_update_stage_tf_firmware(const char *path, uint32_t vers
         }
 
         if (offset == 0U) {
+            /* .bin 文件起始 8 字节是 Cortex-M 向量表，用来判断是否是可跳转 App。 */
             stack_addr = ((uint32_t)s_update_buffer[0]) |
                          ((uint32_t)s_update_buffer[1] << 8U) |
                          ((uint32_t)s_update_buffer[2] << 16U) |
@@ -176,6 +199,7 @@ app_update_status_t app_update_stage_tf_firmware(const char *path, uint32_t vers
     }
 
     app_update_emit_progress(APP_UPDATE_PROGRESS_PARAM, 0U, 0U);
+    /* 标记 pending 后，下一次进入 Bootloader 时会把外部 FLASH 镜像复制进内部 App 区。 */
     if (boot_param_mark_pending(BOOT_EXT_SLOT0_ADDR, file_size, crc, version) == 0U) {
         return APP_UPDATE_PARAM_ERR;
     }

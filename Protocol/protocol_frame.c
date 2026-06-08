@@ -2,17 +2,30 @@
 #include "protocol_ascii_hex.h"
 #include "protocol_crc16.h"
 
+/*
+ * 从协议字节流读取大端 16 位数值。
+ * 参数 data 指向高字节位置；返回合成后的 uint16_t。
+ */
 static uint16_t protocol_read_be16(const uint8_t *data)
 {
     return (uint16_t)(((uint16_t)data[0] << 8U) | data[1]);
 }
 
+/*
+ * 将 16 位数值按大端格式写入协议字节流。
+ * 参数 data 指向输出位置，value 为待写入数值；无返回值。
+ */
 static void protocol_write_be16(uint8_t *data, uint16_t value)
 {
     data[0] = (uint8_t)(value >> 8U);
     data[1] = (uint8_t)value;
 }
 
+/*
+ * 解析上位机下发的 ASCII 十六进制协议帧。
+ * 参数 ascii/ascii_len 为接收缓冲区，frame 为解析结果输出。
+ * 返回 PROTOCOL_STATUS_OK 表示帧合法，其他状态区分长度、起止标志、版本或 CRC 错误。
+ */
 protocol_status_t protocol_frame_parse_ascii(const char *ascii, uint16_t ascii_len, protocol_frame_t *frame)
 {
     uint8_t binary[PROTOCOL_FRAME_MAX_BINARY];
@@ -26,6 +39,7 @@ protocol_status_t protocol_frame_parse_ascii(const char *ascii, uint16_t ascii_l
         return PROTOCOL_STATUS_ERR_PARAM;
     }
 
+    /* 先把 ASCII HEX 还原为二进制帧，再按赛题协议字段逐项校验。 */
     if (protocol_hex_decode(ascii, ascii_len, binary, sizeof(binary), &binary_len) != PROTOCOL_HEX_OK) {
         return PROTOCOL_STATUS_ERR_SIZE;
     }
@@ -48,6 +62,7 @@ protocol_status_t protocol_frame_parse_ascii(const char *ascii, uint16_t ascii_l
         return PROTOCOL_STATUS_ERR_VERSION;
     }
 
+    /* CRC 覆盖起始符到版本号/数据区，帧尾不参与计算。 */
     crc_in_frame = protocol_read_be16(&binary[9U + payload_len]);
     crc_calc = protocol_crc16_modbus(binary, (uint16_t)(9U + payload_len));
     if (crc_in_frame != crc_calc) {
@@ -66,6 +81,11 @@ protocol_status_t protocol_frame_parse_ascii(const char *ascii, uint16_t ascii_l
     return PROTOCOL_STATUS_OK;
 }
 
+/*
+ * 根据协议帧结构生成待发送的 ASCII 十六进制报文。
+ * 参数 frame 为待发送字段，ascii/ascii_size 为输出缓冲区，ascii_len 可返回实际字符数。
+ * 返回 PROTOCOL_STATUS_OK 表示组帧成功，其他状态表示参数或缓冲区长度错误。
+ */
 protocol_status_t protocol_frame_build_ascii(const protocol_frame_t *frame, char *ascii, uint16_t ascii_size, uint16_t *ascii_len)
 {
     uint8_t binary[PROTOCOL_FRAME_MAX_BINARY];
@@ -82,6 +102,7 @@ protocol_status_t protocol_frame_build_ascii(const protocol_frame_t *frame, char
         return PROTOCOL_STATUS_ERR_SIZE;
     }
 
+    /* 先拼二进制帧，再统一计算 CRC 和转换为 ASCII HEX，保证收发格式一致。 */
     protocol_write_be16(&binary[0], PROTOCOL_FRAME_START);
     protocol_write_be16(&binary[2], frame->device_id);
     binary[4] = frame->type;

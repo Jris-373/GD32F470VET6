@@ -9,16 +9,28 @@
 static uint16_t s_rtc_async_factor = BSP_RTC_LXTAL_ASYNC_FACTOR;
 static uint16_t s_rtc_sync_factor  = BSP_RTC_LXTAL_SYNC_FACTOR;
 
+/*
+ * 将十进制 0~99 转换为 BCD。
+ * 参数 value 为普通十进制数；返回 RTC 寄存器需要的 BCD 格式。
+ */
 static uint8_t bsp_rtc_to_bcd(uint8_t value)
 {
     return (uint8_t)(((value / 10U) << 4U) | (value % 10U));
 }
 
+/*
+ * 将 BCD 格式转换为十进制。
+ * 参数 value 为 RTC 读取出的 BCD 数；返回普通十进制数。
+ */
 static uint8_t bsp_rtc_from_bcd(uint8_t value)
 {
     return (uint8_t)(((value >> 4U) * 10U) + (value & 0x0FU));
 }
 
+/*
+ * 将完整年份转换为 RTC 年份 BCD。
+ * 参数 year 可以是 2026 或 26；返回 RTC 使用的两位年份 BCD。
+ */
 static uint8_t bsp_rtc_year_to_bcd(uint16_t year)
 {
     if (year >= 2000U) {
@@ -28,6 +40,10 @@ static uint8_t bsp_rtc_year_to_bcd(uint16_t year)
     return bsp_rtc_to_bcd((uint8_t)(year % 100U));
 }
 
+/*
+ * 选择 RTC 时钟源。
+ * 无传入参数；优先使用外部 LXTAL，失败时退回内部 IRC32K，返回 1 表示选源成功。
+ */
 static uint8_t bsp_rtc_select_clock_source(void)
 {
     rcu_osci_on(RCU_LXTAL);
@@ -49,6 +65,10 @@ static uint8_t bsp_rtc_select_clock_source(void)
     return 0U;
 }
 
+/*
+ * 初始化 RTC 外设。
+ * 无传入参数，无返回值；根据备份寄存器标记判断是否首次配置，并同步 RTC 寄存器。
+ */
 void bsp_rtc_init(void)
 {
     uint32_t rtcsrc_flag;
@@ -58,6 +78,7 @@ void bsp_rtc_init(void)
 
     rtcsrc_flag = GET_BITS(RCU_BDCTL, 8U, 9U);
 
+    /* 首次启动或 RTC 时钟源丢失时重置备份域，重新选择可用时钟源。 */
     if ((RTC_BKP0 != BSP_RTC_BKP_MARK) || (rtcsrc_flag == 0U)) {
         rcu_bkp_reset_enable();
         rcu_bkp_reset_disable();
@@ -74,11 +95,19 @@ void bsp_rtc_init(void)
     (void)rtc_register_sync_wait();
 }
 
+/*
+ * 判断 RTC 是否已经设置过有效时间。
+ * 无传入参数；返回 1 表示备份寄存器有配置标记，0 表示尚未设置。
+ */
 uint8_t bsp_rtc_is_configured(void)
 {
     return (RTC_BKP0 == BSP_RTC_BKP_MARK) ? 1U : 0U;
 }
 
+/*
+ * 设置 RTC 日期时间。
+ * 参数 datetime 为年/月/日/星期/时/分/秒；返回 1 表示设置成功，0 表示参数非法或 RTC 初始化失败。
+ */
 uint8_t bsp_rtc_set_datetime(const bsp_rtc_datetime_t *datetime)
 {
     rtc_parameter_struct rtc_initpara;
@@ -104,6 +133,7 @@ uint8_t bsp_rtc_set_datetime(const bsp_rtc_datetime_t *datetime)
     rtc_initpara.factor_asyn    = s_rtc_async_factor;
     rtc_initpara.factor_syn     = s_rtc_sync_factor;
     rtc_initpara.am_pm          = RTC_AM;
+    /* 赛题时间按 24 小时制显示和回传，RTC 也明确配置为 24 小时格式。 */
     rtc_initpara.display_format = RTC_24HOUR;
 
     if (rtc_init(&rtc_initpara) != SUCCESS) {
@@ -114,6 +144,10 @@ uint8_t bsp_rtc_set_datetime(const bsp_rtc_datetime_t *datetime)
     return 1U;
 }
 
+/*
+ * 读取当前 RTC 日期时间。
+ * 参数 datetime 用于返回时间结构；参数为空时直接返回。
+ */
 void bsp_rtc_get_datetime(bsp_rtc_datetime_t *datetime)
 {
     rtc_parameter_struct rtc_time;

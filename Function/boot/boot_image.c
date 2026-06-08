@@ -9,6 +9,10 @@
 
 static uint8_t s_boot_buffer[BOOT_COPY_BUFFER_SIZE];
 
+/* 检查 App 向量表前两项是否可信。
+ * 参数：stack_addr 为初始 MSP；entry_addr 为复位入口地址。
+ * 返回：1 表示栈地址和入口地址都位于允许范围，0 表示非法。
+ */
 uint8_t boot_is_valid_app_vector(uint32_t stack_addr, uint32_t entry_addr)
 {
     uint32_t entry_aligned;
@@ -30,6 +34,10 @@ uint8_t boot_is_valid_app_vector(uint32_t stack_addr, uint32_t entry_addr)
     return 1U;
 }
 
+/* 计算镜像头自身的 CRC32。
+ * 参数：header 为待计算的镜像头。
+ * 返回：header_crc32 字段清零后的 CRC32。
+ */
 uint32_t boot_image_header_crc32(const boot_image_header_t *header)
 {
     boot_image_header_t temp;
@@ -43,6 +51,10 @@ uint32_t boot_image_header_crc32(const boot_image_header_t *header)
     return boot_crc32_calc((const uint8_t *)&temp, sizeof(temp));
 }
 
+/* 校验镜像头字段是否合法。
+ * 参数：header 为待检查的镜像头。
+ * 返回：1 表示魔术字、大小、状态、向量表和头 CRC 均正确，0 表示非法。
+ */
 uint8_t boot_image_header_is_valid(const boot_image_header_t *header)
 {
     if (header == 0) {
@@ -71,6 +83,10 @@ uint8_t boot_image_header_is_valid(const boot_image_header_t *header)
     return header->header_crc32 == boot_image_header_crc32(header);
 }
 
+/* 从外部 SPI FLASH 指定槽位读取并校验镜像头。
+ * 参数：slot_addr 为槽位起始地址；header 为输出镜像头。
+ * 返回：BOOT_OK 表示读取成功，其余值表示读失败或镜像头非法。
+ */
 boot_status_t boot_external_image_read_header(uint32_t slot_addr, boot_image_header_t *header)
 {
     if (header == 0) {
@@ -88,6 +104,10 @@ boot_status_t boot_external_image_read_header(uint32_t slot_addr, boot_image_hea
     return BOOT_OK;
 }
 
+/* 校验外部 SPI FLASH 中完整 App 镜像。
+ * 参数：slot_addr 为槽位起始地址；header 可选输出镜像头，传入 0 时仅校验。
+ * 返回：BOOT_OK 表示镜像头和镜像 CRC 均正确。
+ */
 boot_status_t boot_external_image_validate(uint32_t slot_addr, boot_image_header_t *header)
 {
     boot_status_t status;
@@ -111,6 +131,7 @@ boot_status_t boot_external_image_validate(uint32_t slot_addr, boot_image_header
     source_addr = slot_addr + BOOT_IMAGE_HEADER_BYTES;
 
     while (remaining != 0U) {
+        /* 分块读取外部 Flash，避免一次性占用过多 RAM。 */
         chunk = remaining;
         if (chunk > sizeof(s_boot_buffer)) {
             chunk = sizeof(s_boot_buffer);
@@ -132,6 +153,10 @@ boot_status_t boot_external_image_validate(uint32_t slot_addr, boot_image_header
     return BOOT_OK;
 }
 
+/* 将外部 SPI FLASH 中的已校验镜像复制到内部 App 区。
+ * 参数：slot_addr 为外部槽位起始地址；applied_header 可选输出已安装镜像头。
+ * 返回：BOOT_OK 表示升级成功，其余值表示校验、擦写或参数保存失败。
+ */
 boot_status_t boot_apply_external_image(uint32_t slot_addr, boot_image_header_t *applied_header)
 {
     boot_image_header_t header;
@@ -147,6 +172,7 @@ boot_status_t boot_apply_external_image(uint32_t slot_addr, boot_image_header_t 
         return status;
     }
 
+    /* 擦写内部 App 区期间关闭中断，避免跳转表或 Flash 操作被中断打断。 */
     __disable_irq();
 
     if (boot_flash_erase(BOOT_APP_START_ADDR, header.image_size) == 0U) {
@@ -159,6 +185,7 @@ boot_status_t boot_apply_external_image(uint32_t slot_addr, boot_image_header_t 
     target_addr = BOOT_APP_START_ADDR;
 
     while (remaining != 0U) {
+        /* 外部 Flash -> RAM 缓冲 -> 内部 Flash，保证升级过程只依赖小块 RAM。 */
         chunk = remaining;
         if (chunk > sizeof(s_boot_buffer)) {
             chunk = sizeof(s_boot_buffer);
@@ -197,6 +224,10 @@ boot_status_t boot_apply_external_image(uint32_t slot_addr, boot_image_header_t 
     return BOOT_OK;
 }
 
+/* 判断内部 App 区是否存在可跳转程序。
+ * 参数：无。
+ * 返回：1 表示向量表有效，0 表示无 App 或 App 已损坏。
+ */
 uint8_t boot_app_is_present(void)
 {
     uint32_t stack_addr;
@@ -208,6 +239,10 @@ uint8_t boot_app_is_present(void)
     return boot_is_valid_app_vector(stack_addr, entry_addr);
 }
 
+/* 关闭 Bootloader 运行环境并跳转到 App。
+ * 参数：app_addr 为 App 向量表起始地址。
+ * 返回：正常情况下不返回；如果 App 返回则停在死循环。
+ */
 void boot_jump_to_app(uint32_t app_addr)
 {
     uint32_t stack_addr;
@@ -219,6 +254,7 @@ void boot_jump_to_app(uint32_t app_addr)
     entry_addr = *((const uint32_t *)(app_addr + 4U));
     app_entry = (void (*)(void))entry_addr;
 
+    /* 跳转前关闭 SysTick 和所有 NVIC 中断，防止 Bootloader 中断影响 App。 */
     __disable_irq();
     SysTick->CTRL = 0U;
     SysTick->LOAD = 0U;

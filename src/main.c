@@ -15,6 +15,10 @@
 #define BOOT_ENABLE_LEGACY_TF_UPDATE 0U
 #endif
 
+/* 在 OLED 缓冲区中绘制字符串。
+ * 参数：x/y 为起始坐标；str 为待显示字符串。
+ * 返回：无，调用者需要再执行 bsp_oled_refresh。
+ */
 static void oled_draw_string(uint8_t x, uint8_t y, const char *str)
 {
     while ((str != 0) && (*str != '\0')) {
@@ -24,6 +28,10 @@ static void oled_draw_string(uint8_t x, uint8_t y, const char *str)
     }
 }
 
+/* 清空 OLED 指定文本行。
+ * 参数：y 为行起始纵坐标。
+ * 返回：无。
+ */
 static void oled_clear_line(uint8_t y)
 {
     uint8_t index;
@@ -33,6 +41,10 @@ static void oled_clear_line(uint8_t y)
     }
 }
 
+/* 按赛题要求显示两行 OLED 内容。
+ * 参数：line1 为第一行，通常是队伍编号；line2 为第二行状态。
+ * 返回：无，函数内部完成刷新。
+ */
 static void oled_show_two_lines(const char *line1, const char *line2)
 {
     oled_clear_line(0U);
@@ -45,6 +57,10 @@ static void oled_show_two_lines(const char *line1, const char *line2)
 }
 
 #if !defined(CMIS_BUILD_APP)
+/* 在 OLED 上按固定宽度显示无符号整数。
+ * 参数：x/y 为起始坐标；value 为数值；width 为显示位数。
+ * 返回：无。
+ */
 static void oled_draw_uint_fixed(uint8_t x, uint8_t y, uint32_t value, uint8_t width)
 {
     char digits[10];
@@ -74,6 +90,10 @@ static void oled_draw_uint_fixed(uint8_t x, uint8_t y, uint32_t value, uint8_t w
     }
 }
 
+/* Bootloader 旧 TF 升级流程的 OLED 进度回调。
+ * 参数：progress 为升级阶段；done/total 为进度数值。
+ * 返回：无。
+ */
 static void app_update_oled_progress(app_update_progress_t progress, uint32_t done, uint32_t total)
 {
     uint32_t percent;
@@ -127,6 +147,10 @@ static void app_update_oled_progress(app_update_progress_t progress, uint32_t do
     }
 }
 
+/* 将 TF/SDIO 进度枚举转换为详细 OLED 文本。
+ * 参数：progress 为 TF 卡流程阶段。
+ * 返回：对应常量字符串。
+ */
 static const char *tf_progress_text(bsp_tf_progress_t progress)
 {
     switch (progress) {
@@ -204,6 +228,10 @@ static const char *tf_progress_text(bsp_tf_progress_t progress)
     }
 }
 
+/* 将 TF/SDIO 进度枚举转换为短文本。
+ * 参数：progress 为 TF 卡流程阶段。
+ * 返回：适合错误页显示的短字符串。
+ */
 static const char *tf_progress_short_text(bsp_tf_progress_t progress)
 {
     switch (progress) {
@@ -275,18 +303,30 @@ static const char *tf_progress_short_text(bsp_tf_progress_t progress)
     }
 }
 
+/* TF 卡挂载/读写进度 OLED 回调。
+ * 参数：progress 为流程阶段；value 当前未使用。
+ * 返回：无。
+ */
 static void tf_oled_progress(bsp_tf_progress_t progress, uint32_t value)
 {
     (void)value;
     oled_show_two_lines("MOUNT TF", tf_progress_text(progress));
 }
 
+/* TF 卡 DMA 预检流程 OLED 回调。
+ * 参数：progress 为流程阶段；value 当前未使用。
+ * 返回：无。
+ */
 static void tf_dma_oled_progress(bsp_tf_progress_t progress, uint32_t value)
 {
     (void)value;
     oled_show_two_lines("DMA S0 TEST", tf_progress_text(progress));
 }
 
+/* 显示 TF 卡错误页。
+ * 参数：title 为第一行错误标题。
+ * 返回：无。
+ */
 static void oled_show_tf_error(const char *title)
 {
     uint32_t error;
@@ -301,11 +341,19 @@ static void oled_show_tf_error(const char *title)
     bsp_oled_refresh();
 }
 
+/* 显示 TF 卡挂载错误。
+ * 参数：无。
+ * 返回：无。
+ */
 static void oled_show_tf_mount_error(void)
 {
     oled_show_tf_error("TF MOUNT ERR");
 }
 
+/* 对 TF 卡 0 号扇区做一次预检。
+ * 参数：无。
+ * 返回：1 表示扇区可读，0 表示预检失败。
+ */
 static uint8_t tf_dma_sector0_preflight(void)
 {
     bsp_tf_status_t status;
@@ -325,6 +373,10 @@ static uint8_t tf_dma_sector0_preflight(void)
     return 0U;
 }
 
+/* 等待指定按键松开并清空残留按键事件。
+ * 参数：key_id 为按键编号。
+ * 返回：无。
+ */
 static void key_wait_release_id(bsp_key_id_t key_id)
 {
     while (bsp_key_is_pressed_id(key_id) != 0U) {
@@ -335,6 +387,10 @@ static void key_wait_release_id(bsp_key_id_t key_id)
     }
 }
 
+/* 将 App 侧 TF 暂存升级状态转换为 OLED 文本。
+ * 参数：status 为 app_update 返回状态。
+ * 返回：对应常量字符串。
+ */
 static const char *update_status_text(app_update_status_t status)
 {
     switch (status) {
@@ -378,11 +434,19 @@ static const char *update_status_text(app_update_status_t status)
 #endif
 
 #if defined(CMIS_BUILD_APP)
+/* App 目标显示队伍编号和当前状态。
+ * 参数：status 为第二行状态文字。
+ * 返回：无。
+ */
 static void app_show_status(const char *status)
 {
     oled_show_two_lines(APP_TEAM_ID_TEXT, status);
 }
 
+/* App 目标主入口。
+ * 参数：无。
+ * 返回：正常情况下不返回。
+ */
 int main(void)
 {
     uint32_t last_tick;
@@ -406,6 +470,7 @@ int main(void)
     while (1) {
         app_protocol_poll();
 
+        /* 使用系统滴答做非阻塞 1 秒心跳灯，不阻塞 RS485 协议处理。 */
         if ((systick_get_tick() - last_tick) >= 1000U) {
             last_tick += 1000U;
             bsp_led_toggle();
@@ -415,6 +480,10 @@ int main(void)
 
 #else
 
+/* Bootloader 启动时尝试安装外部 FLASH 中的 pending 镜像。
+ * 参数：无。
+ * 返回：无；成功安装后会复位。
+ */
 static void boot_try_pending_update(void)
 {
     boot_param_t param;
@@ -439,21 +508,37 @@ static void boot_try_pending_update(void)
     delay_1ms(1000U);
 }
 
+/* 显示 Bootloader 等待状态。
+ * 参数：无。
+ * 返回：无。
+ */
 static void boot_show_wait_update(void)
 {
     oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
 }
 
+/* 显示无 App 状态。
+ * 参数：无。
+ * 返回：无。
+ */
 static void boot_show_no_app(void)
 {
     oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
 }
 
+/* 显示串口升级失败后的 Bootloader 状态。
+ * 参数：无。
+ * 返回：无。
+ */
 static void boot_show_usart_fail(void)
 {
     oled_show_two_lines(APP_TEAM_ID_TEXT, APP_STATUS_BOOTLOADER);
 }
 
+/* 如果 App 有效则关闭 OLED 并跳转 App。
+ * 参数：无。
+ * 返回：App 无效时返回，跳转成功不返回。
+ */
 static void boot_try_jump_app(void)
 {
     if (boot_app_is_present() == 0U) {
@@ -468,6 +553,10 @@ static void boot_try_jump_app(void)
     boot_jump_to_app(BOOT_APP_START_ADDR);
 }
 
+/* 旧版按键 TF 升级流程：从 TF 卡暂存 firmware.bin 到外部 FLASH。
+ * 参数：无。
+ * 返回：无；暂存成功后复位进入 Bootloader 安装。
+ */
 static void boot_stage_firmware_from_tf(void)
 {
     app_update_status_t status;
@@ -501,6 +590,10 @@ static void boot_stage_firmware_from_tf(void)
     boot_show_wait_update();
 }
 
+/* Bootloader 中轮询按键。
+ * 参数：无。
+ * 返回：无。
+ */
 static void boot_poll_keys(void)
 {
     volatile uint8_t legacy_tf_update_enabled = BOOT_ENABLE_LEGACY_TF_UPDATE;
@@ -520,6 +613,10 @@ static void boot_poll_keys(void)
     }
 }
 
+/* Bootloader 目标主入口。
+ * 参数：无。
+ * 返回：正常情况下不返回。
+ */
 int main(void)
 {
     uint32_t last_tick;
@@ -538,6 +635,7 @@ int main(void)
 
     boot_try_pending_update();
 
+    /* 如果 App 通过 0501 请求升级，则先进入串口升级窗口。 */
     stay_bootloader_after_usart = 0U;
     if (boot_usart_update_requested() != 0U) {
         boot_show_wait_update();
@@ -552,6 +650,7 @@ int main(void)
     last_tick = systick_get_tick();
     menu_start_tick = last_tick;
 
+    /* 无升级请求时等待赛题要求的 Bootloader 窗口后自动跳转 App。 */
     while ((stay_bootloader_after_usart == 0U) &&
            (boot_app_is_present() != 0U) &&
            ((systick_get_tick() - menu_start_tick) < BOOT_APP_START_DELAY_MS)) {
@@ -580,6 +679,7 @@ int main(void)
     while (1) {
         boot_poll_keys();
 
+        /* Bootloader 停留状态下 500ms 闪烁系统灯，表示仍在运行。 */
         if ((systick_get_tick() - last_tick) >= 500U) {
             last_tick += 500U;
             bsp_led_toggle();

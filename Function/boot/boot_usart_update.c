@@ -46,6 +46,10 @@ static uint8_t s_usart_fw_ready;
 #endif
 
 #if !defined(CMIS_BUILD_APP)
+/* 按大端格式读取 32 位整数。
+ * 参数：data 指向至少 4 字节缓冲区。
+ * 返回：解析出的 32 位值。
+ */
 static uint32_t boot_usart_read_be32(const uint8_t *data)
 {
     return (((uint32_t)data[0]) << 24U) |
@@ -54,6 +58,10 @@ static uint32_t boot_usart_read_be32(const uint8_t *data)
            ((uint32_t)data[3]);
 }
 
+/* 按小端格式读取 32 位整数。
+ * 参数：data 指向至少 4 字节缓冲区。
+ * 返回：解析出的 32 位值。
+ */
 static uint32_t boot_usart_read_le32(const uint8_t *data)
 {
     return ((uint32_t)data[0]) |
@@ -63,6 +71,10 @@ static uint32_t boot_usart_read_le32(const uint8_t *data)
 }
 #endif
 
+/* 判断字符是否为合法 ASCII HEX 字符。
+ * 参数：ch 为待检查字符。
+ * 返回：1 表示合法，0 表示非法。
+ */
 static uint8_t boot_usart_is_hex_char(char ch)
 {
     uint8_t value;
@@ -70,6 +82,10 @@ static uint8_t boot_usart_is_hex_char(char ch)
     return protocol_hex_char_to_nibble(ch, &value);
 }
 
+/* 检查输入字符是否匹配帧头 A5B6 的指定位置。
+ * 参数：offset 为当前帧头偏移；ch 为接收到的字符。
+ * 返回：1 表示匹配，0 表示不匹配。
+ */
 static uint8_t boot_usart_start_char_matches(uint16_t offset, char ch)
 {
     switch (offset) {
@@ -90,12 +106,20 @@ static uint8_t boot_usart_start_char_matches(uint16_t offset, char ch)
     }
 }
 
+/* 重置 Bootloader 串口帧接收状态。
+ * 参数：无。
+ * 返回：无。
+ */
 static void boot_usart_frame_receiver_reset(void)
 {
     s_usart_ascii_len = 0U;
     s_usart_expected_ascii_len = 0U;
 }
 
+/* 根据帧长度字段计算完整 ASCII 帧长度。
+ * 参数：无，读取当前接收缓存中的长度字段。
+ * 返回：1 表示长度合法，0 表示非法或超出缓冲区。
+ */
 static uint8_t boot_usart_calc_expected_ascii_len(void)
 {
     uint8_t high;
@@ -120,6 +144,10 @@ static uint8_t boot_usart_calc_expected_ascii_len(void)
     return 1U;
 }
 
+/* 从 RS485 接收缓存中轮询一帧协议报文。
+ * 参数：frame 为输出协议帧。
+ * 返回：NONE 表示暂未收齐，READY 表示解析成功，ERROR 表示帧错误。
+ */
 static boot_usart_frame_status_t boot_usart_poll_frame(protocol_frame_t *frame)
 {
     uint8_t data;
@@ -130,6 +158,7 @@ static boot_usart_frame_status_t boot_usart_poll_frame(protocol_frame_t *frame)
     }
 
     while (bsp_uart1_rs485_read_byte(&data) != 0U) {
+        /* 升级阶段只接收 ASCII HEX 协议帧，其他字符会重置接收状态。 */
         if (boot_usart_is_hex_char((char)data) == 0U) {
             boot_usart_frame_receiver_reset();
             continue;
@@ -173,6 +202,10 @@ static boot_usart_frame_status_t boot_usart_poll_frame(protocol_frame_t *frame)
     return BOOT_USART_FRAME_NONE;
 }
 
+/* 判断协议帧是否发给本设备或广播地址。
+ * 参数：frame 为已解析协议帧。
+ * 返回：1 表示本设备需要处理，0 表示忽略。
+ */
 static uint8_t boot_usart_frame_matches_device(const protocol_frame_t *frame)
 {
     if (frame == 0) {
@@ -182,6 +215,10 @@ static uint8_t boot_usart_frame_matches_device(const protocol_frame_t *frame)
     return ((frame->device_id == s_usart_device_id) || (frame->device_id == PROTOCOL_DEVICE_BROADCAST)) ? 1U : 0U;
 }
 
+/* 构造并通过 RS485 发送 Bootloader 协议帧。
+ * 参数：type 为帧类型；command 为命令字；payload/length 为负载数据。
+ * 返回：无。
+ */
 static void boot_usart_send_frame(uint8_t type, uint16_t command, const uint8_t *payload, uint8_t length)
 {
     protocol_frame_t frame;
@@ -199,11 +236,16 @@ static void boot_usart_send_frame(uint8_t type, uint16_t command, const uint8_t 
     }
 
     if (protocol_frame_build_ascii(&frame, ascii, sizeof(ascii), &ascii_len) == PROTOCOL_STATUS_OK) {
+        /* 发送前留出收发器方向切换时间，降低 RS485 首字节丢失概率。 */
         delay_1ms(BOOT_USART_RS485_TURNAROUND_MS);
         bsp_uart1_rs485_send_buffer((const uint8_t *)ascii, ascii_len);
     }
 }
 
+/* 发送指定命令的成功应答。
+ * 参数：command 为需要应答的命令字。
+ * 返回：无。
+ */
 static void boot_usart_send_ok(uint16_t command)
 {
     uint8_t payload;
@@ -212,11 +254,19 @@ static void boot_usart_send_ok(uint16_t command)
     boot_usart_send_frame(PROTOCOL_TYPE_RESPONSE, command, &payload, 1U);
 }
 
+/* 发送指定命令的错误应答。
+ * 参数：command 为需要应答的命令字。
+ * 返回：无。
+ */
 static void boot_usart_send_error(uint16_t command)
 {
     boot_usart_send_frame(PROTOCOL_TYPE_ERROR, command, 0, 0U);
 }
 
+/* 处理 Bootloader 和 App 都支持的通用帧。
+ * 参数：frame 为已解析协议帧。
+ * 返回：无。
+ */
 static void boot_usart_handle_common_frame(const protocol_frame_t *frame)
 {
     if (boot_usart_frame_matches_device(frame) == 0U) {
@@ -228,6 +278,10 @@ static void boot_usart_handle_common_frame(const protocol_frame_t *frame)
     }
 }
 
+/* 初始化 Bootloader/App 共用的串口升级协议状态。
+ * 参数：无。
+ * 返回：无。
+ */
 void boot_usart_protocol_init(void)
 {
     boot_usart_frame_receiver_reset();
@@ -236,11 +290,19 @@ void boot_usart_protocol_init(void)
     bsp_uart1_rs485_init(boot_param_baudrate_from_code(s_usart_baudrate_code));
 }
 
+/* 发送设备心跳帧。
+ * 参数：无。
+ * 返回：无。
+ */
 void boot_usart_send_heartbeat(void)
 {
     boot_usart_send_frame(PROTOCOL_TYPE_HEARTBEAT, BOOT_USART_CMD_DEV_HEARTBEAT, 0, 0U);
 }
 
+/* App 侧轮询 0501 进入 Bootloader 命令和心跳。
+ * 参数：无。
+ * 返回：无；收到合法 0501 后会写参数并复位。
+ */
 void boot_usart_app_poll(void)
 {
     protocol_frame_t frame;
@@ -263,6 +325,7 @@ void boot_usart_app_poll(void)
     if ((frame.type == PROTOCOL_TYPE_COMMAND) &&
         (frame.command == BOOT_USART_CMD_ENTER_BOOT) &&
         (frame.length == 0U)) {
+        /* 先持久化串口升级请求，再复位进入 Bootloader。 */
         if (boot_param_mark_usart_request() != 0U) {
             boot_usart_send_ok(BOOT_USART_CMD_ENTER_BOOT);
             delay_1ms(50U);
@@ -276,12 +339,20 @@ void boot_usart_app_poll(void)
     boot_usart_handle_common_frame(&frame);
 }
 
+/* 查询是否存在串口升级请求。
+ * 参数：无。
+ * 返回：1 表示 Bootloader 应进入 0502/0503 升级窗口。
+ */
 uint8_t boot_usart_update_requested(void)
 {
     return boot_param_is_usart_request();
 }
 
 #if !defined(CMIS_BUILD_APP)
+/* 发送 Bootloader 等待 App 启动的倒计时文本。
+ * 参数：seconds 为倒计时秒数。
+ * 返回：无。
+ */
 static void boot_usart_send_countdown_prompt(uint8_t seconds)
 {
     char text[] = "wait for start Application(00s)......\r\n";
@@ -306,12 +377,20 @@ static void boot_usart_send_countdown_prompt(uint8_t seconds)
     bsp_uart1_rs485_send_string(text);
 }
 
+/* 发送官方上位机 N-01 会识别的 Bootloader 启动提示。
+ * 参数：无。
+ * 返回：无。
+ */
 static void boot_usart_send_init_prompt(void)
 {
     bsp_uart1_rs485_send_string("using command to interrupt start Application\r\n");
     boot_usart_send_countdown_prompt(10U);
 }
 
+/* 从 RS485 流中读取固件原始字节。
+ * 参数：data 为输出字节；data_started 标记是否已经开始接收固件正文。
+ * 返回：1 表示读到 1 字节，0 表示当前无数据或参数错误。
+ */
 static uint8_t boot_usart_read_firmware_byte(uint8_t *data, uint8_t *data_started)
 {
     uint8_t byte;
@@ -321,6 +400,7 @@ static uint8_t boot_usart_read_firmware_byte(uint8_t *data, uint8_t *data_starte
     }
 
     while (bsp_uart1_rs485_read_byte(&byte) != 0U) {
+        /* 固件开始前忽略上位机可能附带的空白字符，开始后所有字节都按固件内容处理。 */
         if ((*data_started == 0U) &&
             ((byte == '\r') || (byte == '\n') || (byte == ' ') || (byte == '\t'))) {
             continue;
@@ -334,6 +414,10 @@ static uint8_t boot_usart_read_firmware_byte(uint8_t *data, uint8_t *data_starte
     return 0U;
 }
 
+/* 接收 0502 后发送的官方固件包并暂存到内部 staging 区。
+ * 参数：ready_ack_sent 输出是否已经提前回复过 0502 OK。
+ * 返回：1 表示固件包校验并暂存成功，0 表示超时、溢出、魔术字错误、向量表错误或 Flash 写入失败。
+ */
 static uint8_t boot_usart_receive_firmware_to_staging(uint8_t *ready_ack_sent)
 {
     uint8_t data;
@@ -365,6 +449,7 @@ static uint8_t boot_usart_receive_firmware_to_staging(uint8_t *ready_ack_sent)
     last_rx_tick = start_tick;
 
     while (1) {
+        /* 接收阶段不按协议帧解析，而是把后续串口数据作为二进制固件流。 */
         if (boot_usart_read_firmware_byte(&data, &data_started) != 0U) {
             if (s_usart_fw_size < BOOT_USART_RAW_MAX_SIZE) {
                 s_usart_fw_buffer[s_usart_fw_size] = data;
@@ -377,6 +462,7 @@ static uint8_t boot_usart_receive_firmware_to_staging(uint8_t *ready_ack_sent)
         }
 
         now_tick = systick_get_tick();
+        /* 如果上位机在 0502 后稍晚才开始发文件，先给 OK，避免上位机一直等待。 */
         if ((s_usart_fw_size == 0U) &&
             (*ready_ack_sent == 0U) &&
             ((now_tick - start_tick) >= BOOT_USART_FW_READY_ACK_TIMEOUT_MS)) {
@@ -398,6 +484,7 @@ static uint8_t boot_usart_receive_firmware_to_staging(uint8_t *ready_ack_sent)
         return 0U;
     }
 
+    /* 官方固件包前 4 字节为 5AA5C33C，后面才是真正 App bin。 */
     if (boot_usart_read_be32(s_usart_fw_buffer) != BOOT_FW_PACKAGE_MAGIC) {
         return 0U;
     }
@@ -409,6 +496,7 @@ static uint8_t boot_usart_receive_firmware_to_staging(uint8_t *ready_ack_sent)
 
     s_usart_fw_stack = boot_usart_read_le32(&s_usart_fw_buffer[4]);
     s_usart_fw_entry = boot_usart_read_le32(&s_usart_fw_buffer[8]);
+    /* 校验 App 向量表，防止把错误文件写入 App 区。 */
     if (boot_is_valid_app_vector(s_usart_fw_stack, s_usart_fw_entry) == 0U) {
         return 0U;
     }
@@ -432,6 +520,10 @@ static uint8_t boot_usart_receive_firmware_to_staging(uint8_t *ready_ack_sent)
     return 1U;
 }
 
+/* 计算串口升级后记录到参数区的下一个 App 版本序号。
+ * 参数：无。
+ * 返回：递增后的内部版本序号，参数区无效时根据是否已有 App 取初值。
+ */
 static uint32_t boot_usart_next_app_version(void)
 {
     boot_param_t param;
@@ -447,6 +539,10 @@ static uint32_t boot_usart_next_app_version(void)
     return param.app_version + 1U;
 }
 
+/* 将 staging 区中的串口固件应用到内部 App 区。
+ * 参数：无。
+ * 返回：BOOT_OK 表示写入和 CRC 校验成功，其余值表示镜像、擦写、CRC 或参数错误。
+ */
 static boot_status_t boot_usart_apply_staged_firmware(void)
 {
     boot_image_header_t header;
@@ -462,6 +558,7 @@ static boot_status_t boot_usart_apply_staged_firmware(void)
         return BOOT_ERR_IMAGE_HEADER;
     }
 
+    /* 正在擦写 App 区时关闭中断，避免中断服务访问正在变化的代码区域。 */
     __disable_irq();
 
     if (boot_flash_erase(BOOT_APP_START_ADDR, s_usart_fw_app_size) == 0U) {
@@ -474,6 +571,7 @@ static boot_status_t boot_usart_apply_staged_firmware(void)
     target_addr = BOOT_APP_START_ADDR;
 
     while (remaining != 0U) {
+        /* staging 位于内部 Flash，仍分块搬到 RAM 后再写入目标 App 区。 */
         chunk = remaining;
         if (chunk > BOOT_USART_COPY_BUFFER_SIZE) {
             chunk = BOOT_USART_COPY_BUFFER_SIZE;
@@ -516,6 +614,7 @@ static boot_status_t boot_usart_apply_staged_firmware(void)
     }
     header.header_crc32 = boot_image_header_crc32(&header);
 
+    /* App 已直接写入内部 Flash，这里只保存安装结果和版本信息。 */
     if (boot_param_mark_app_installed(&header) == 0U) {
         return BOOT_ERR_PARAM;
     }
@@ -523,6 +622,10 @@ static boot_status_t boot_usart_apply_staged_firmware(void)
     return BOOT_OK;
 }
 
+/* 等待上位机发送 0503，使已暂存固件正式生效。
+ * 参数：无。
+ * 返回：1 表示等待超时但保持 Bootloader 窗口，0 表示应用失败或已复位。
+ */
 static uint8_t boot_usart_wait_apply_command(void)
 {
     protocol_frame_t frame;
@@ -549,6 +652,7 @@ static uint8_t boot_usart_wait_apply_command(void)
         if ((frame.type == PROTOCOL_TYPE_COMMAND) &&
             (frame.command == BOOT_USART_CMD_APPLY_BIN) &&
             (frame.length == 0U)) {
+            /* 先回复 0503 OK，再执行擦写，避免上位机因等待应答误判失败。 */
             boot_usart_send_ok(BOOT_USART_CMD_APPLY_BIN);
             delay_1ms(50U);
             boot_status = boot_usart_apply_staged_firmware();
@@ -566,6 +670,10 @@ static uint8_t boot_usart_wait_apply_command(void)
     return 1U;
 }
 
+/* 处理 0502 接收固件命令。
+ * 参数：无。
+ * 返回：1 表示收包后等待 0503 超时，可继续回到升级窗口；0 表示收包失败。
+ */
 static uint8_t boot_usart_handle_receive_command(void)
 {
     uint8_t ready_ack_sent;
@@ -582,6 +690,10 @@ static uint8_t boot_usart_handle_receive_command(void)
     return boot_usart_wait_apply_command();
 }
 
+/* Bootloader 串口升级窗口主循环。
+ * 参数：无。
+ * 返回：1 表示串口升级流程发生失败并停留 Bootloader，0 表示窗口超时可跳转 App。
+ */
 uint8_t boot_usart_bootloader_upgrade_window(void)
 {
     protocol_frame_t frame;
@@ -611,6 +723,7 @@ uint8_t boot_usart_bootloader_upgrade_window(void)
     while ((systick_get_tick() - start_tick) < window_timeout_ms) {
         elapsed = systick_get_tick() - start_tick;
 
+        /* 启动提示延迟发送，避开自动评测刚结束 0501 应答时的接收窗口。 */
         if (first_init_prompt_sent == 0U) {
             if (elapsed < BOOT_USART_INIT_PROMPT_FIRST_DELAY_MS) {
                 continue;
@@ -666,6 +779,7 @@ uint8_t boot_usart_bootloader_upgrade_window(void)
                 return 1U;
             }
 
+            /* 错误固件后继续留在升级窗口，允许上位机重新发送 0502 和正确固件。 */
             start_tick = systick_get_tick();
             window_timeout_ms = BOOT_USART_WAIT_0503_MS;
             prompt_7s_sent = 1U;
@@ -687,6 +801,10 @@ uint8_t boot_usart_bootloader_upgrade_window(void)
     return 0U;
 }
 #else
+/* App 目标不包含 Bootloader 升级窗口，实现为空以保持接口一致。
+ * 参数：无。
+ * 返回：固定 0。
+ */
 uint8_t boot_usart_bootloader_upgrade_window(void)
 {
     return 0U;

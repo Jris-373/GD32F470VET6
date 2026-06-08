@@ -10,6 +10,10 @@
 
 static uint8_t s_oled_gram[BSP_OLED_WIDTH][BSP_OLED_PAGE_COUNT];
 
+/*
+ * 计算整数幂，用于数字显示时提取各位。
+ * 参数 base 为底数，exp 为指数；返回 base 的 exp 次方。
+ */
 static uint32_t bsp_oled_pow(uint8_t base, uint8_t exp)
 {
     uint32_t result = 1U;
@@ -22,6 +26,10 @@ static uint32_t bsp_oled_pow(uint8_t base, uint8_t exp)
     return result;
 }
 
+/*
+ * 通过 I2C 向 OLED 写入一个命令或数据字节。
+ * 参数 data 为待写字节，type 指定命令/数据；无返回值，底层 I2C 错误在此处忽略。
+ */
 static void bsp_oled_write_byte(uint8_t data, uint8_t type)
 {
     uint8_t packet[2];
@@ -31,6 +39,10 @@ static void bsp_oled_write_byte(uint8_t data, uint8_t type)
     (void)bsp_i2c0_write(BSP_OLED_I2C_ADDR_7BIT, packet, sizeof(packet), 0U);
 }
 
+/*
+ * 向 OLED 连续写入显示数据块。
+ * 参数 data/length 为待刷新的 GRAM 数据；无返回值。函数按 16 字节分包，避免临时缓冲区过大。
+ */
 static void bsp_oled_write_data_block(const uint8_t *data, uint16_t length)
 {
     uint8_t packet[17];
@@ -55,6 +67,10 @@ static void bsp_oled_write_data_block(const uint8_t *data, uint16_t length)
     }
 }
 
+/*
+ * 配置 OLED 控制寄存器。
+ * 无传入参数，无返回值；初始化显示方向、扫描方式、对比度、电荷泵等 SSD1306 参数。
+ */
 static void bsp_oled_config_reg(void)
 {
     bsp_oled_write_byte(0xAEU, BSP_OLED_CMD);
@@ -84,6 +100,10 @@ static void bsp_oled_config_reg(void)
     bsp_oled_write_byte(0xAFU, BSP_OLED_CMD);
 }
 
+/*
+ * 初始化 OLED 显示模块。
+ * 无传入参数，无返回值；函数会初始化 I2C0、等待 OLED 上电稳定、写入配置并清屏。
+ */
 void bsp_oled_init(void)
 {
     bsp_i2c0_init();
@@ -92,6 +112,10 @@ void bsp_oled_init(void)
     bsp_oled_clear();
 }
 
+/*
+ * 打开 OLED 显示。
+ * 无传入参数，无返回值；低功耗唤醒后可调用该函数恢复显示。
+ */
 void bsp_oled_display_on(void)
 {
     bsp_oled_write_byte(0x8DU, BSP_OLED_CMD);
@@ -99,6 +123,10 @@ void bsp_oled_display_on(void)
     bsp_oled_write_byte(0xAFU, BSP_OLED_CMD);
 }
 
+/*
+ * 关闭 OLED 显示。
+ * 无传入参数，无返回值；进入睡眠前调用可降低系统功耗。
+ */
 void bsp_oled_display_off(void)
 {
     bsp_oled_write_byte(0x8DU, BSP_OLED_CMD);
@@ -106,12 +134,17 @@ void bsp_oled_display_off(void)
     bsp_oled_write_byte(0xAEU, BSP_OLED_CMD);
 }
 
+/*
+ * 将软件 GRAM 刷新到 OLED 屏幕。
+ * 无传入参数，无返回值；按页写入 128 列数据。
+ */
 void bsp_oled_refresh(void)
 {
     uint8_t page;
     uint8_t column;
     uint8_t line[BSP_OLED_WIDTH];
 
+    /* OLED 按 page 寻址，每页 8 像素高，逐页刷完整屏。 */
     for (page = 0U; page < BSP_OLED_PAGE_COUNT; page++) {
         bsp_oled_write_byte((uint8_t)(0xB0U + page), BSP_OLED_CMD);
         bsp_oled_write_byte(0x00U, BSP_OLED_CMD);
@@ -125,11 +158,19 @@ void bsp_oled_refresh(void)
     }
 }
 
+/*
+ * 清空 OLED 显示。
+ * 无传入参数，无返回值；内部用 0x00 填充整个显存并刷新。
+ */
 void bsp_oled_clear(void)
 {
     bsp_oled_fill(0x00U);
 }
 
+/*
+ * 用指定字节填充 OLED 显存。
+ * 参数 data 为填充值；无返回值，常用于清屏或全屏点亮测试。
+ */
 void bsp_oled_fill(uint8_t data)
 {
     uint8_t page;
@@ -144,6 +185,10 @@ void bsp_oled_fill(uint8_t data)
     bsp_oled_refresh();
 }
 
+/*
+ * 在软件 GRAM 中绘制单个像素点。
+ * 参数 x/y 为像素坐标，on 非 0 表示点亮，0 表示熄灭；坐标越界时直接返回。
+ */
 void bsp_oled_draw_point(uint8_t x, uint8_t y, uint8_t on)
 {
     uint8_t page;
@@ -154,6 +199,7 @@ void bsp_oled_draw_point(uint8_t x, uint8_t y, uint8_t on)
         return;
     }
 
+    /* 当前 OLED 模块安装方向与常规页序相反，因此 page 需要反向换算。 */
     page = (uint8_t)(BSP_OLED_PAGE_COUNT - 1U - (y / 8U));
     bit  = (uint8_t)(y % 8U);
     mask = (uint8_t)(1U << (7U - bit));
@@ -165,6 +211,10 @@ void bsp_oled_draw_point(uint8_t x, uint8_t y, uint8_t on)
     }
 }
 
+/*
+ * 显示一个 ASCII 字符。
+ * 参数 x/y 为左上角坐标，ch 为字符，size 支持 12 或 16，mode 控制正常/反色绘制。
+ */
 void bsp_oled_show_char(uint8_t x, uint8_t y, char ch, uint8_t size, uint8_t mode)
 {
     uint8_t temp;
@@ -210,6 +260,10 @@ void bsp_oled_show_char(uint8_t x, uint8_t y, char ch, uint8_t size, uint8_t mod
     }
 }
 
+/*
+ * 显示以 '\0' 结尾的字符串。
+ * 参数 x/y 为起始坐标，str 为字符串指针；无返回值，超出屏幕时自动换行或清屏回到起点。
+ */
 void bsp_oled_show_string(uint8_t x, uint8_t y, const char *str)
 {
     while ((str != 0) && (*str != '\0')) {
@@ -232,6 +286,10 @@ void bsp_oled_show_string(uint8_t x, uint8_t y, const char *str)
     bsp_oled_refresh();
 }
 
+/*
+ * 显示固定宽度的无符号整数。
+ * 参数 x/y 为起始坐标，num 为数值，len 为显示位数，size 为字体高度；无返回值。
+ */
 void bsp_oled_show_num(uint8_t x, uint8_t y, uint32_t num, uint8_t len, uint8_t size)
 {
     uint8_t index;
